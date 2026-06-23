@@ -1,0 +1,15 @@
+# Simulation outputs (STLs, pickles, plots) — keep out of git
+/resultados/
+/resultados_*/
+/resultado_*/
+/lcurve_*/
+
+# Python / logs
+__pycache__/
+*.py[cod]
+*.log
+
+# Local backups (not source of truth)
+_backup*/
+_backups*/
+*_BACKUP/
