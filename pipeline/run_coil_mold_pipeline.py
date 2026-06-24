@@ -15,6 +15,10 @@ from __future__ import annotations
 import os
 import sys
 
+_PIPELINE_DIR = os.path.dirname(os.path.abspath(__file__))
+if _PIPELINE_DIR not in sys.path:
+    sys.path.insert(0, _PIPELINE_DIR)
+
 import coil_mold_common as cfg
 
 
@@ -32,11 +36,10 @@ def _run_gradient_script() -> None:
     """Run gradiente_belen_santi_main.py as a subprocess (script has no main())."""
     import subprocess
 
-    script = os.path.join(cfg.BASE_DIR, 'gradiente_belen_santi_main.py')
+    script = os.path.join(cfg.PIPELINE_DIR, 'gradiente_belen_santi_main.py')
     print(f"  Executing: {script}")
-    print("  NOTE: edit gradiente_belen_santi_main.py USER PARAMETERS to match "
-          "coil_mold_common.py before relying on this step.")
-    result = subprocess.run([sys.executable, script], cwd=cfg.BASE_DIR, check=False)
+    print("  NOTE: edit coil_mold_common.py before relying on this step.")
+    result = subprocess.run([sys.executable, script], cwd=cfg.PIPELINE_DIR, check=False)
     if result.returncode != 0:
         sys.exit(result.returncode)
 

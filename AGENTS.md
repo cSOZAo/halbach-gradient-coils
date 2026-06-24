@@ -10,19 +10,22 @@ Designing gradient coils (X, Y, Z) for a Halbach-based low-field MRI scanner usi
 
 ## Layout
 
-- `gradiente_halbach_test.py` — current working script to generate a single gradient coil. Editable.
-- `Curvas_L.py` — L-curve sweeps (Tikhonov / turns / mesh divs) for regularization studies. Editable.
-- `gradientes.py` — helpers / shared utilities.
-- `gradiente_belen_santi_main.py` — **active** belen_santi port; editable. Switch axis with `GRADIENT_AXIS = 'x'|'y'|'z'`.
-- `gradiente_belen_santi_Gx/Gy/Gz.py` — **frozen** per-axis reference copies; listed in `.claudeignore`, do not modify.
-- `gradiente_golden_angle_main.py` — **active** GoldenAngle_GradientCoil.m port; editable. Switch channel with `CHANNEL = 1|2|3`. Gradient direction is non-axis-aligned (`rot_i @ [1,0,0]`).
-- `gradiente_golden_angle_Ch1/Ch2/Ch3.py` — **frozen** per-channel reference copies; listed in `.claudeignore`, do not modify.
-- `resultados_halbach/` — output STLs, plots, pickles.
-- `resultados_belen_santi_main_*/` — outputs of the active belen_santi port.
-- `resultados_golden_angle_main_Ch*/` — outputs of the active golden_angle port.
-- `lcurve_x_tikhonov/` — L-curve outputs.
-- `CoilGen_MatLab/` — **read-only reference**. Partner's working MATLAB designs. `script_belen_santi.m` is the authoritative design to port.
-- `*_BACKUP.py` — **do not modify**.
+```
+standalone/          # 3-step mold workflow; USER PARAMETERS in each script
+pipeline/            # same workflow; edit coil_mold_common.py only
+  coil_mold_common.py
+  gradiente_belen_santi_main.py
+  add_coil_leads.py
+  generate_coil_shell_split.py
+  run_coil_mold_pipeline.py
+assets/
+  cilindros_gradientes_grandes/   # Fusion 360 shell halves (g_2a, g_2b, …)
+  CoilGen_MatLab/                 # read-only MATLAB reference
+resultados/          # outputs (gitignored) — see resultados/STORAGE.md
+obsolete/            # superseded scripts (golden angle, old shell gen, sweeps)
+```
+
+Frozen per-axis copies and golden-angle ports live under `obsolete/CodigosGitLabOSI/`.
 
 ## Current task: MATLAB → pyCoilGen port
 

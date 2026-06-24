@@ -34,60 +34,38 @@ import trimesh
 
 
 # =============================================================================
-#  SETTINGS — defaults from coil_mold_common.py (edit that file for the pipeline)
+#  SETTINGS — read from coil_mold_common.py (edit that file only)
 # =============================================================================
 
-try:
-    import coil_mold_common as _cfg
-except ImportError:     
-    _cfg = None
+import coil_mold_common as cfg
 
-def _from_cfg(name, fallback):
-    return getattr(_cfg, name, fallback) if _cfg is not None else fallback
-
-# When coil_mold_common imports, INPUT_STL defaults to cfg.wire_stl_path() unless
-# you set INPUT_STL_OVERRIDE below (the else-branch fallback is only used if
-# coil_mold_common is missing).
-INPUT_STL_OVERRIDE = ''
-
-if INPUT_STL_OVERRIDE:
-    INPUT_STL = INPUT_STL_OVERRIDE
-elif _cfg is not None:
-    INPUT_STL = _cfg.wire_stl_path(with_leads=False)
-else:
-    INPUT_STL = (
-        r"C:\Clemente\VSCode\pyCoilGen-0.2.4\pyCoilGen-0.2.4\pruebas\resultados\resultados_grande_y\final_2\Gradient_Gy_tk2500_lvl26_wire_0_z.stl"
-    )
-
-LEAD_DIRECTION = _from_cfg('LEAD_DIRECTION', np.array([-1.0, 0.0, 0.0]))
-SECTOR_MIN_Z = _from_cfg('SECTOR_MIN_Z', 0.10)
-SECTOR_MAX_ABS_Y = _from_cfg('SECTOR_MAX_ABS_Y', 0.05)
-CYL_AXIS = _from_cfg('CYL_AXIS', None)
-SHELL_RADIUS = _from_cfg('SHELL_RADIUS', None)
-
-CONDUCTOR_WIDTH = _from_cfg('CONDUCTOR_WIDTH', 0.0023)
-CROSS_SECTION_A_FRAC = _from_cfg('CROSS_SECTION_A_FRAC', 1.0)
-CROSS_SECTION_B_FRAC = _from_cfg('CROSS_SECTION_B_FRAC', 1.0)
-CROSS_SECTION_N = _from_cfg('CROSS_SECTION_N', 12)
-CS_BLEND_RINGS = _from_cfg('CS_BLEND_RINGS', 8)
-JUNCTION_RIGID_STEPS = _from_cfg('JUNCTION_RIGID_STEPS', 2)
-JUNCTION_PLANE_RINGS = _from_cfg('JUNCTION_PLANE_RINGS', 4)
-
-CUT_LOOP_LENGTH = _from_cfg('CUT_LOOP_LENGTH', 0.040)
-GAP_AXIAL_LENGTH = _from_cfg('GAP_AXIAL_LENGTH', 0.012)
-WIRE_ISOLATE_HALF = _from_cfg('WIRE_ISOLATE_HALF', 0.008)
-TANGENT_RADIUS = _from_cfg('TANGENT_RADIUS', 0.006)
-
-WIRE_TANGENT_RUN = _from_cfg('WIRE_TANGENT_RUN', 0.004)
-FACE_TOWARD_GAP = _from_cfg('FACE_TOWARD_GAP', 0.003)
-PEEL_OUT = _from_cfg('PEEL_OUT', 0.006)
-LEAD_LENGTH = _from_cfg('LEAD_LENGTH', 0.02)
-LEAD_BLEND = _from_cfg('LEAD_BLEND', 0.030)
-TIP_FAN = _from_cfg('TIP_FAN', 0.015)
-LEAD_STEPS = _from_cfg('LEAD_STEPS', 128)
-LEAD_0_SPREAD_SIGN = _from_cfg('LEAD_0_SPREAD_SIGN', 1)
-LEAD_1_SPREAD_SIGN = _from_cfg('LEAD_1_SPREAD_SIGN', -1)
-EXIT_DIRECTION = _from_cfg('EXIT_DIRECTION', None)
+INPUT_STL = cfg.wire_stl_path(with_leads=False)
+LEAD_DIRECTION = cfg.LEAD_DIRECTION
+SECTOR_MIN_Z = cfg.SECTOR_MIN_Z
+SECTOR_MAX_ABS_Y = cfg.SECTOR_MAX_ABS_Y
+CYL_AXIS = cfg.CYL_AXIS
+SHELL_RADIUS = cfg.SHELL_RADIUS
+CONDUCTOR_WIDTH = cfg.CONDUCTOR_WIDTH
+CROSS_SECTION_A_FRAC = cfg.CROSS_SECTION_A_FRAC
+CROSS_SECTION_B_FRAC = cfg.CROSS_SECTION_B_FRAC
+CROSS_SECTION_N = cfg.CROSS_SECTION_N
+CS_BLEND_RINGS = cfg.CS_BLEND_RINGS
+JUNCTION_RIGID_STEPS = cfg.JUNCTION_RIGID_STEPS
+JUNCTION_PLANE_RINGS = cfg.JUNCTION_PLANE_RINGS
+CUT_LOOP_LENGTH = cfg.CUT_LOOP_LENGTH
+GAP_AXIAL_LENGTH = cfg.GAP_AXIAL_LENGTH
+WIRE_ISOLATE_HALF = cfg.WIRE_ISOLATE_HALF
+TANGENT_RADIUS = cfg.TANGENT_RADIUS
+WIRE_TANGENT_RUN = cfg.WIRE_TANGENT_RUN
+FACE_TOWARD_GAP = cfg.FACE_TOWARD_GAP
+PEEL_OUT = cfg.PEEL_OUT
+LEAD_LENGTH = cfg.LEAD_LENGTH
+LEAD_BLEND = cfg.LEAD_BLEND
+TIP_FAN = cfg.TIP_FAN
+LEAD_STEPS = cfg.LEAD_STEPS
+LEAD_0_SPREAD_SIGN = cfg.LEAD_0_SPREAD_SIGN
+LEAD_1_SPREAD_SIGN = cfg.LEAD_1_SPREAD_SIGN
+EXIT_DIRECTION = cfg.EXIT_DIRECTION
 
 # =============================================================================
 #  END OF SETTINGS
@@ -820,6 +798,7 @@ def main():
     base, ext = os.path.splitext(input_stl)
     output_stl = base + "_with_leads" + ext
     leads_only_stl = base + "_leads_only" + ext
+    coil_open_stl = base + "_coil_open" + ext
     print(f"\nInput  : {input_stl}") 
     print(f"Output : {output_stl}\n")
 
@@ -946,8 +925,10 @@ def main():
     final.fix_normals()
 
     os.makedirs(os.path.dirname(os.path.abspath(output_stl)), exist_ok=True)
+    open_mesh.export(coil_open_stl)
     leads_only.export(leads_only_stl)
     final.export(output_stl)
+    print(f"  Coil-open STL  : {coil_open_stl}")
     print(f"  Leads-only STL : {leads_only_stl}")
 
     print("Verifying...")

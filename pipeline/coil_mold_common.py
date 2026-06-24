@@ -21,27 +21,53 @@ import trimesh
 # USER PARAMETERS — single source of truth for the mold workflow
 # =============================================================================
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PIPELINE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(PIPELINE_DIR)
+PYCOILGEN_ROOT = os.path.dirname(PROJECT_ROOT)
+BASE_DIR = PROJECT_ROOT
 
-# ---- Gradient design (must match gradiente_belen_santi_main.py) --------------
+# ---- Gradient design (gradiente_belen_santi_main.py) ------------------------
 GRADIENT_AXIS = 'y'
 TIKHONOV_FACTOR = 2500
 NUM_LEVELS = 26
 
-CYL_HEIGHT = 0.44               # [m]
-CYL_RADIUS = 0.152              # [m]
+TARGET_RX = 0.125
+TARGET_RY = 0.125
+TARGET_RZ = 0.125
+RESOL_RADIAL = 8
+RESOL_ANGULAR = 28
+
+CYL_HEIGHT = 0.43               # [m]
+CYL_RADIUS = 0.151              # [m]
+CYL_N_CIRC = 200
+CYL_N_LONG = 10
 CYL_ROT_AXIS = (0, 1, 0)
 CYL_ROT_ANGLE = np.pi / 2
 
-CONDUCTOR_WIDTH = 0.0018
-CROSS_SECTION_A_FRAC = 1.0
+CUT_WIDTH = 0.001
+POT_OFFSET_FACTOR = 0.5
+MIN_LOOP_SIGNIF = 5
+NORMAL_SHIFT = -0.005
+NORMAL_SHIFT_SMOOTH = [7, 7, 7]
+
+CONDUCTOR_WIDTH = 0.0023
+CROSS_SECTION_A_FRAC = 2.0
 CROSS_SECTION_B_FRAC = 1.0
 CROSS_SECTION_N = 12
 
+ENABLE_FASTHENRY = True
+FASTHENRY_BIN = r'C:\Program Files (x86)\FastFieldSolvers\FastHenry2\FastHenry2.exe'
+SPECIFIC_CONDUCTIVITY_CONDUCTOR = 1.8e-8
+SMOOTH_FACTOR = 3
+
 # ---- Result paths -----------------------------------------------------------
 RESULTS_DIR = os.path.join(
-    BASE_DIR, 'resultados', f'resultados_grande_{GRADIENT_AXIS}', 'final_2',
+    PROJECT_ROOT, 'resultados', f'resultados_grande_{GRADIENT_AXIS}', 'final',
 )
+
+
+def target_fields_dir() -> str:
+    return os.path.join(RESULTS_DIR, 'target_fields')
 
 def wire_stem() -> str:
     """Base filename (no extension) for the exported wire STL."""
@@ -56,12 +82,17 @@ def wire_stl_path(with_leads: bool = False) -> str:
 
 
 def leads_stl_path() -> str:
-    """Standalone lead tubes exported by add_coil_leads.py (pass 2 of shell cut)."""
+    """Standalone lead tubes exported by add_coil_leads.py."""
     return os.path.join(RESULTS_DIR, f'{wire_stem()}_leads_only.stl')
 
 
+def coil_open_stl_path() -> str:
+    """Open gradient loop (cut gap, no leads) exported by add_coil_leads.py."""
+    return os.path.join(RESULTS_DIR, f'{wire_stem()}_coil_open.stl')
+
+
 # ---- Fusion 360 printable shell halves --------------------------------------
-SHELL_STL_DIR = os.path.join(BASE_DIR, 'cilindros_gradientes_grandes')
+SHELL_STL_DIR = os.path.join(PROJECT_ROOT, 'assets', 'cilindros_gradientes_grandes')
 
 # Which cylinder pair to carve.  Dimensions are read from the STL files at
 # runtime (detect_fusion_cylinder_dims); table below is reference only.
@@ -81,12 +112,18 @@ FUSION_SHELL_REFERENCE_MM = {
 GRADIENT_LAYER = 2
 
 # ---- Shell subtraction ------------------------------------------------------
-# Two-pass direct mesh boolean (no voxel remesh — keeps full-depth grooves):
-#   pass 1: coil-only STL  (gradient windings)
-#   pass 2: leads-only STL (inlet/outlet paths, exported by add_coil_leads)
+# Align with closed coil-only STL; subtract using the open cable + leads.
+# Pad → subtract → restore (direct mesh boolean, no voxel remesh).
+#
+# SUBTRACT_MODE:
+#   'with_leads'              — one boolean on *_with_leads.stl
+#   'with_leads_by_component' — coil_open + leads_only sequentially (stable)
+#   'two_pass'                — legacy closed coil + leads_only (extra gap groove)
+SUBTRACT_MODE = 'with_leads'
 ALIGN_WIRE_STL = wire_stl_path(with_leads=False)
+COIL_OPEN_STL = coil_open_stl_path()
 LEADS_WIRE_STL = leads_stl_path()
-SUBTRACT_WIRE_STL = wire_stl_path(with_leads=True)   # legacy / fallback
+SUBTRACT_WIRE_STL = wire_stl_path(with_leads=True)
 
 # Normal expansion along wire surface normals before boolean subtraction.
 # Widens grooves slightly and helps merge overlapping turns in dense areas.
@@ -94,13 +131,16 @@ SUBTRACT_WIRE_STL = wire_stl_path(with_leads=True)   # legacy / fallback
 GROOVE_EXPANSION = 0.00035         # [m] 0.35 mm per side — coil pass
 LEAD_GROOVE_EXPANSION = 0.00025    # [m] 0.25 mm per side — leads pass
 
-# Second full-mesh subtract with slightly larger expansion removes flash in
-# crossover zones without shaving the whole outer cylinder (which costs depth).
-COIL_SECOND_SUBTRACT = True
-COIL_SECOND_EXPANSION = 0.00050   # [m] total expansion for pass 1b (> GROOVE_EXPANSION)
+# Pad the shell outward before coil subtract so wire that extends past the
+# design outer radius still cuts solid material (single even-odd pass).
+SHELL_OUTER_PAD = 0.0005           # [m] 0.5 mm radial pad on outer wall
 
-# Uniform outer peel — keep small; prefer COIL_SECOND_SUBTRACT above.
-OUTER_SKIN_TRIM = 0.0002           # [m] 0.2 mm; set 0 to disable
+# Second full-mesh subtract (legacy) — off when using pad+restore below.
+COIL_SECOND_SUBTRACT = False
+COIL_SECOND_EXPANSION = 0.00050   # [m] only used if COIL_SECOND_SUBTRACT is True
+
+# Extra uniform outer peel after restore-to-design (usually 0 with pad workflow).
+OUTER_SKIN_TRIM = 0.0              # [m]; set >0 only for fine flash cleanup
 
 # Voxel remesh (disabled by default — coarse pitch yields blocky / hollow grooves).
 RESOLVE_SELF_INTERSECTIONS = False

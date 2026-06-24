@@ -1,8 +1,6 @@
 # Simulation outputs (STLs, pickles, plots) — keep out of git
 /resultados/
-/resultados_*/
-/resultado_*/
-/lcurve_*/
+/standalone/output/
 
 # Python / logs
 __pycache__/

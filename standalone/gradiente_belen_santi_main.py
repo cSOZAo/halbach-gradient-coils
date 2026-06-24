@@ -22,7 +22,9 @@ import matplotlib.pyplot as plt                    # plots
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  (enables 3D axes)
 
 # Prefer the pyCoilGen package in this workspace over any installed copy.
-WORKSPACE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+WORKSPACE_ROOT = os.path.dirname(PROJECT_ROOT)
 if WORKSPACE_ROOT not in sys.path:
     sys.path.insert(0, WORKSPACE_ROOT)
 
@@ -79,7 +81,7 @@ SPECIFIC_CONDUCTIVITY_CONDUCTOR = 1.8e-8      # [Ohm*m] copper resistivity used 
 
 # ---- Output ------------------------------------------------------------
 BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
-RUTA_SALIDA  = os.path.join(BASE_DIR, f'C:/Clemente/VSCode/pyCoilGen-0.2.4/pyCoilGen-0.2.4/pruebas/resultados/resultados_grande_{GRADIENT_AXIS}/final_2')
+RUTA_SALIDA  = os.path.join(SCRIPT_DIR, 'output')
 TARGET_DIR   = os.path.join(RUTA_SALIDA, 'target_fields')
 
 # =============================================================================
@@ -262,12 +264,6 @@ if ENABLE_FASTHENRY and not FASTHENRY_AVAILABLE:
     print("  WARNING: FastHenry2 was not found. R/L metrics will be marked as n/a.")
 print("=" * 70)
 solution = pyCoilGen(log, arg_dict)
-from add_coil_leads import add_leads_to_pycoilgen_output
-add_leads_to_pycoilgen_output(
-    solution, RUTA_SALIDA, arg_dict['project_name'],
-    conductor_width=CONDUCTOR_WIDTH,
-    lead_length=0.03,   # 30 mm leads
-)
 
 
 # =============================================================================

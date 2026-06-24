@@ -6,8 +6,8 @@ the pyCoilGen wire path from each half.  Fusion dimensions are read from the
 STL files (no hard-coded length/radius).
 
 Alignment uses the coil-only wire STL (no leads) so lead extensions do not
-shift the gradient axially on the cylinder.  Boolean subtraction uses the
-wire STL with leads so inlet/outlet grooves are carved.
+shift the gradient axially on the cylinder.  Subtraction uses the open cable
+with leads (``*_with_leads.stl``) so the cut gap is not carved as a groove.
 
 Usage:
     python generate_coil_shell_split.py
@@ -20,6 +20,10 @@ Dependencies:
 import os
 import sys
 import time
+
+_PIPELINE_DIR = os.path.dirname(os.path.abspath(__file__))
+if _PIPELINE_DIR not in sys.path:
+    sys.path.insert(0, _PIPELINE_DIR)
 
 import numpy as np
 import trimesh
@@ -39,6 +43,8 @@ CYL_ROT_AXIS = cfg.CYL_ROT_AXIS
 CYL_ROT_ANGLE = cfg.CYL_ROT_ANGLE
 GROOVE_EXPANSION = cfg.GROOVE_EXPANSION
 LEAD_GROOVE_EXPANSION = cfg.LEAD_GROOVE_EXPANSION
+SUBTRACT_MODE = cfg.SUBTRACT_MODE
+SHELL_OUTER_PAD = cfg.SHELL_OUTER_PAD
 OUTER_SKIN_TRIM = cfg.OUTER_SKIN_TRIM
 COIL_SECOND_SUBTRACT = cfg.COIL_SECOND_SUBTRACT
 COIL_SECOND_EXPANSION = cfg.COIL_SECOND_EXPANSION
@@ -202,25 +208,54 @@ def prepare_wire_manifold(stl_path, expansion, axis, label='wire'):
     return manifold_from_trimesh(wire_tm)
 
 
-def prepare_leads_manifold(stl_path, expansion, label='leads'):
-    """Load leads STL; build manifold as union of connected components."""
+def prepare_open_coil_manifold(stl_path, expansion, axis, label='coil_open'):
+    """Load open gradient loop; do not fill cut-face holes."""
+    print(f"  Loading {label}: {stl_path}", flush=True)
+    wire_tm = trimesh.load(stl_path)
+    wire_tm.fix_normals()
+    if wire_tm.is_watertight:
+        print(f"  NOTE: {label} is watertight (expected open mesh at cut faces)")
+    else:
+        print(f"  {label}: open mesh at weld cut (holes not filled)")
+    print(f"  {label}: {len(wire_tm.vertices)} verts, {len(wire_tm.faces)} faces")
+    if expansion > 0:
+        print(f"  Fattening {label} by {expansion * 1000:.2f} mm (per side)...")
+        wire_tm = expand_wire_mesh(wire_tm, expansion)
+    if RESOLVE_SELF_INTERSECTIONS:
+        print(f"  WARNING: voxel remesh enabled for {label} — grooves may look blocky.")
+        t_vox = time.perf_counter()
+        wire_man = resolve_self_intersections_slabbed(wire_tm, axis, VOXEL_PITCH)
+        print(f"  Voxel union ready ({time.perf_counter() - t_vox:.1f} s)", flush=True)
+        return wire_man
+    return manifold_from_trimesh(wire_tm)
+
+
+def prepare_lead_components(stl_path, expansion, label='leads'):
+    """Load leads STL and return one manifold per connected component."""
     print(f"  Loading {label}: {stl_path}", flush=True)
     wire_tm = trimesh.load(stl_path)
     if expansion > 0:
         print(f"  Fattening {label} by {expansion * 1000:.2f} mm (per side)...")
         wire_tm = expand_wire_mesh(wire_tm, expansion)
-
     components = wire_tm.split(only_watertight=False)
     print(f"  {label}: {len(components)} component(s), "
           f"{sum(len(c.faces) for c in components)} faces total")
-    combined = None
+    mans = []
     for i, comp in enumerate(components):
         if not comp.is_watertight:
             print(f"    WARNING: component {i + 1} not watertight — attempting repair")
             comp.fill_holes()
             comp.fix_normals()
-        combined = manifold_from_trimesh(comp) if combined is None else combined + manifold_from_trimesh(comp)
-    return combined
+        mans.append(manifold_from_trimesh(comp))
+    return mans
+
+
+def subtract_wires_from_shell(shell_man, wire_mans, half_label):
+    """Apply a sequence of mesh booleans (same net volume as one unioned subtractor)."""
+    result = shell_man
+    for i, wire_man in enumerate(wire_mans, start=1):
+        result = subtract_wire_from_shell(result, wire_man, f'{half_label} #{i}')
+    return result
 
 
 def subtract_wire_from_shell(shell_man, wire_man, label):
@@ -231,12 +266,35 @@ def subtract_wire_from_shell(shell_man, wire_man, label):
     return result
 
 
+def pad_shell_outer(mesh_tm, fusion_dims, axis_hat, pad_m):
+    """
+    Push outer-wall vertices radially outward by *pad_m*.
+
+    Gives the boolean subtractor solid material where the wire centreline
+    sits slightly outside the design outer radius (~0.5 mm of tube wall).
+    """
+    if pad_m <= 0:
+        return mesh_tm
+    axis_hat = np.asarray(axis_hat, dtype=float)
+    axis_hat /= np.linalg.norm(axis_hat)
+    v = np.asarray(mesh_tm.vertices, dtype=float)
+    axial = v @ axis_hat
+    radial = v - np.outer(axial, axis_hat)
+    r = np.linalg.norm(radial, axis=1)
+    mid_r = 0.5 * (fusion_dims['inner_r_m'] + fusion_dims['outer_r_m'])
+    near_outer = r >= mid_r
+    rhat = radial / np.maximum(r[:, None], 1e-12)
+    v_new = v.copy()
+    v_new[near_outer] += pad_m * rhat[near_outer]
+    return trimesh.Trimesh(vertices=v_new, faces=mesh_tm.faces.copy(), process=False)
+
+
 def build_radius_limiter(fusion_dims, align_axial_center, trim_m):
     """
     Solid cylinder r = outer_r - trim, aligned with the Fusion shell.
 
-    Intersecting the carved half with this volume peels off the outermost
-    *trim* radial band (surface flash from overlapping wire booleans).
+    With trim_m=0 this is the design outer envelope (restores pad after subtract).
+    With trim_m>0 it additionally peels a thin outer skin band.
     """
     outer_r = fusion_dims['outer_r_m'] - trim_m
     height = fusion_dims['axial_length_m'] + 0.002
@@ -250,8 +308,8 @@ def build_radius_limiter(fusion_dims, align_axial_center, trim_m):
     return cyl.transform(T)
 
 
-def trim_outer_skin(result_man, limiter, label):
-    print(f"    Trimming outer {OUTER_SKIN_TRIM * 1000:.2f} mm skin on {label}...", flush=True)
+def intersect_with_limiter(result_man, limiter, label, reason):
+    print(f"    {reason} on {label}...", flush=True)
     t0 = time.perf_counter()
     trimmed = result_man ^ limiter
     print(f"      Done ({time.perf_counter() - t0:.2f} s)")
@@ -342,41 +400,40 @@ def run_shell_split(
     groove_expansion=None,
     lead_groove_expansion=None,
     outer_skin_trim=None,
+    shell_outer_pad=None,
     coil_second_subtract=None,
     coil_second_expansion=None,
+    subtract_mode=None,
     resolve_self_intersections=None,
     output_in_mm=None,
 ):
     """
     Carve Fusion 360 shell halves using wire STLs supplied by the caller.
 
-    Parameters
-    ----------
-    wire_with_leads_stl : str
-        Cable mesh with leads (single-pass subtract fallback, or paired with
-        coil-only / leads-only STLs for two-pass mode).
-    align_wire_stl : str, optional
-        Coil-only wire for axial alignment.  Defaults to the sibling STL without
-        ``_with_leads`` in the filename, else *wire_with_leads_stl*.
-    leads_wire_stl : str, optional
-        Leads-only mesh for pass 2.  Defaults to ``<stem>_leads_only.stl`` next
-        to *wire_with_leads_stl*; if missing, subtract uses *wire_with_leads_stl*
-        in a single pass.
-    gradient_layer, shell_stl_dir, output_dir, groove_expansion, ...
-        Override ``coil_mold_common`` defaults when not None.
+    Subtraction mode (``coil_mold_common.SUBTRACT_MODE``):
+
+    * ``with_leads`` — single boolean on ``*_with_leads.stl`` (open loop + leads).
+    * ``with_leads_by_component`` — ``*_coil_open.stl`` then each lead tube.
+    * ``two_pass`` — legacy closed coil + ``*_leads_only.stl`` (carves extra gap).
+
+    Alignment always uses the coil-only STL (no leads).
     """
     m3d.set_circular_segments(CIRCULAR_SEGMENTS)
 
     subtract_path = os.path.normpath(wire_with_leads_stl)
     align_path = os.path.normpath(
         align_wire_stl or cfg.derive_align_wire_path(subtract_path))
-    if leads_wire_stl is not None:
-        leads_path = os.path.normpath(leads_wire_stl)
-    else:
-        base, ext = os.path.splitext(subtract_path)
-        if base.endswith('_with_leads'):
-            base = base[:-len('_with_leads')]
-        leads_path = os.path.normpath(base + '_leads_only' + ext)
+    stem_base, ext = os.path.splitext(subtract_path)
+    if stem_base.endswith('_with_leads'):
+        stem_base = stem_base[:-len('_with_leads')]
+    leads_path = os.path.normpath(
+        leads_wire_stl if leads_wire_stl is not None else stem_base + '_leads_only' + ext)
+    coil_open_path = os.path.normpath(stem_base + '_coil_open' + ext)
+
+    mode = SUBTRACT_MODE if subtract_mode is None else subtract_mode
+    if mode not in ('with_leads', 'with_leads_by_component', 'two_pass'):
+        print(f"  ERROR: unknown SUBTRACT_MODE '{mode}'")
+        sys.exit(1)
 
     layer = GRADIENT_LAYER if gradient_layer is None else gradient_layer
     shell_dir = SHELL_STL_DIR if shell_stl_dir is None else shell_stl_dir
@@ -385,13 +442,13 @@ def run_shell_split(
     lead_groove_exp = (
         LEAD_GROOVE_EXPANSION if lead_groove_expansion is None else lead_groove_expansion)
     skin_trim = OUTER_SKIN_TRIM if outer_skin_trim is None else outer_skin_trim
+    outer_pad = SHELL_OUTER_PAD if shell_outer_pad is None else shell_outer_pad
     second_sub = COIL_SECOND_SUBTRACT if coil_second_subtract is None else coil_second_subtract
     second_exp = COIL_SECOND_EXPANSION if coil_second_expansion is None else coil_second_expansion
     voxel_remesh = (
         RESOLVE_SELF_INTERSECTIONS
         if resolve_self_intersections is None else resolve_self_intersections)
     export_mm = OUTPUT_IN_MM if output_in_mm is None else output_in_mm
-    two_pass = os.path.isfile(leads_path)
 
     print("=" * 70)
     print("  Split Coil Shell Generator -- Fusion 360 halves + wire subtraction")
@@ -399,17 +456,19 @@ def run_shell_split(
     print()
     print(f"  Gradient layer      : {layer}  "
           f"(g_{layer}a + g_{layer}b)")
+    print(f"  Subtract mode       : {mode}")
     print(f"  Align wire STL      : {align_path}")
-    print(f"  Coil subtract STL   : {align_path}")
-    if two_pass:
-        print(f"  Leads subtract STL  : {leads_path}")
-    else:
-        print(f"  Leads subtract STL  : (missing — run add_coil_leads.py first)")
-        print(f"  Fallback wire STL   : {subtract_path}")
+    print(f"  With-leads STL      : {subtract_path}")
+    if mode == 'with_leads_by_component':
+        print(f"  Coil-open STL       : {coil_open_path}")
+        print(f"  Leads-only STL      : {leads_path}")
+    elif mode == 'two_pass':
+        print(f"  Coil subtract STL   : {align_path}  (closed loop — legacy)")
+        print(f"  Leads-only STL      : {leads_path}")
     print(f"  Shell STL dir       : {shell_dir}")
-    print(f"  Coil expansion      : {groove_exp * 1000:.2f} mm")
+    print(f"  Groove expansion    : {groove_exp * 1000:.2f} mm")
     print(f"  Lead expansion      : {lead_groove_exp * 1000:.2f} mm")
-    print(f"  Two-pass subtract   : {two_pass}")
+    print(f"  Shell outer pad     : {outer_pad * 1000:.2f} mm")
     print(f"  Outer skin trim     : {skin_trim * 1000:.2f} mm")
     print(f"  Coil 2nd pass exp   : {second_exp * 1000:.2f} mm" if second_sub else "  Coil 2nd pass       : off")
     print(f"  Voxel remesh        : {voxel_remesh}")
@@ -419,9 +478,23 @@ def run_shell_split(
     if not os.path.isfile(align_path):
         print(f"  ERROR: coil wire STL not found:\n    {align_path}")
         sys.exit(1)
-    if not two_pass and not os.path.isfile(subtract_path):
-        print(f"  ERROR: no leads-only STL and no with_leads fallback at:\n    {subtract_path}")
-        sys.exit(1)
+    if mode in ('with_leads', 'with_leads_by_component'):
+        if not os.path.isfile(subtract_path):
+            print(f"  ERROR: with_leads STL not found:\n    {subtract_path}")
+            print("  Run add_coil_leads.py first.")
+            sys.exit(1)
+    if mode == 'with_leads_by_component':
+        if not os.path.isfile(coil_open_path):
+            print(f"  ERROR: coil_open STL not found:\n    {coil_open_path}")
+            print("  Re-run add_coil_leads.py to export *_coil_open.stl.")
+            sys.exit(1)
+        if not os.path.isfile(leads_path):
+            print(f"  ERROR: leads_only STL not found:\n    {leads_path}")
+            sys.exit(1)
+    if mode == 'two_pass':
+        if not os.path.isfile(leads_path):
+            print(f"  ERROR: leads_only STL not found:\n    {leads_path}")
+            sys.exit(1)
 
     stl_a = os.path.join(shell_dir, f'g_{layer}a.stl')
     stl_b = os.path.join(shell_dir, f'g_{layer}b.stl')
@@ -442,33 +515,40 @@ def run_shell_split(
     align_dims = cfg.measure_wire_dims(align_path, CYL_ROT_AXIS, CYL_ROT_ANGLE)
     print("  Wire alignment (coil only, no leads):")
     print_wire_dims(align_dims, "Align")
-    if two_pass:
+    subtract_dims = cfg.measure_wire_dims(subtract_path, CYL_ROT_AXIS, CYL_ROT_ANGLE)
+    print("  With-leads mesh:")
+    print_wire_dims(subtract_dims, "Subtract")
+    axial_shift = subtract_dims['axial_center'] - align_dims['axial_center']
+    if abs(axial_shift) > 1e-4:
+        print(f"  NOTE: subtract mesh centre differs from align by "
+              f"{axial_shift*1000:.2f} mm — alignment uses coil-only centre.")
+    if mode == 'with_leads_by_component':
+        coil_open_dims = cfg.measure_wire_dims(coil_open_path, CYL_ROT_AXIS, CYL_ROT_ANGLE)
+        print("  Coil-open mesh:")
+        print_wire_dims(coil_open_dims, "Coil open")
         leads_dims = cfg.measure_wire_dims(leads_path, CYL_ROT_AXIS, CYL_ROT_ANGLE)
         print("  Leads-only mesh:")
         print_wire_dims(leads_dims, "Leads")
-    else:
-        subtract_dims = cfg.measure_wire_dims(subtract_path, CYL_ROT_AXIS, CYL_ROT_ANGLE)
-        print("  Wire subtraction (with leads, single pass):")
-        print_wire_dims(subtract_dims, "Subtract")
-        axial_shift = subtract_dims['axial_center'] - align_dims['axial_center']
-        if abs(axial_shift) > 1e-4:
-            print(f"  NOTE: subtract mesh centre differs from align by "
-                  f"{axial_shift*1000:.2f} mm — alignment uses coil-only centre.")
     print()
 
-    total_steps = (7 if two_pass else 6) + (1 if second_sub else 0)
+    total_steps = (6 if mode == 'with_leads' else 7) + (1 if second_sub and second_exp > groove_exp else 0)
+    axis = cfg.rotated_cylinder_axis(CYL_ROT_AXIS, CYL_ROT_ANGLE)
     step = 1
     print(f"  [{step}/{total_steps}] Loading Fusion 360 shell halves...")
     t0 = time.perf_counter()
     mesh_a = load_fusion_half_mesh(stl_a, fusion_dims, align_dims['axial_center'])
     mesh_b = load_fusion_half_mesh(stl_b, fusion_dims, align_dims['axial_center'])
+    if outer_pad > 0:
+        print(f"    Padding outer wall by {outer_pad * 1000:.2f} mm...")
+        mesh_a = pad_shell_outer(mesh_a, fusion_dims, axis, outer_pad)
+        mesh_b = pad_shell_outer(mesh_b, fusion_dims, axis, outer_pad)
     t1 = time.perf_counter()
     print(f"    Both halves loaded ({t1 - t0:.2f} s)")
     print()
 
     step += 1
-    axis = cfg.rotated_cylinder_axis(CYL_ROT_AXIS, CYL_ROT_ANGLE)
     coil_wire_fat = None
+    wire_subtractors = None
     if second_sub and second_exp > groove_exp:
         print(f"  [{step}/{total_steps}] Preparing coil wire (pass 1b, "
               f"{second_exp * 1000:.2f} mm expansion)...")
@@ -478,32 +558,47 @@ def run_shell_split(
         print(f"    Ready ({time.perf_counter() - t0:.2f} s)")
         print()
 
-    leads_wire = None
-    if two_pass:
+    if mode == 'with_leads':
         step += 1
-        print(f"  [{step}/{total_steps}] Preparing coil wire mesh (pass 1)...")
+        print(f"  [{step}/{total_steps}] Preparing with_leads mesh...")
         t0 = time.perf_counter()
-        coil_wire = prepare_wire_manifold(align_path, groove_exp, axis, label='coil')
-        t1 = time.perf_counter()
-        print(f"    Coil wire ready ({t1 - t0:.2f} s)")
+        wire_subtractors = [prepare_wire_manifold(
+            subtract_path, groove_exp, axis, label='with_leads')]
+        print(f"    Ready ({time.perf_counter() - t0:.2f} s)")
+        print()
+    elif mode == 'with_leads_by_component':
+        step += 1
+        print(f"  [{step}/{total_steps}] Preparing coil-open mesh...")
+        t0 = time.perf_counter()
+        coil_open_man = prepare_open_coil_manifold(
+            coil_open_path, groove_exp, axis, label='coil_open')
+        print(f"    Ready ({time.perf_counter() - t0:.2f} s)")
         print()
 
         step += 1
-        print(f"  [{step}/{total_steps}] Preparing leads mesh (pass 2)...")
+        print(f"  [{step}/{total_steps}] Preparing lead components...")
         t0 = time.perf_counter()
-        leads_wire = prepare_leads_manifold(
+        lead_mans = prepare_lead_components(
             leads_path, lead_groove_exp, label='leads')
-        t1 = time.perf_counter()
-        print(f"    Leads wire ready ({t1 - t0:.2f} s)")
+        wire_subtractors = [coil_open_man] + lead_mans
+        print(f"    {len(lead_mans)} lead component(s) ready "
+              f"({time.perf_counter() - t0:.2f} s)")
         print()
-    else:
+    elif mode == 'two_pass':
         step += 1
-        print(f"  [{step}/{total_steps}] Preparing with_leads mesh (single pass)...")
+        print(f"  [{step}/{total_steps}] Preparing closed coil mesh (legacy pass 1)...")
         t0 = time.perf_counter()
-        coil_wire = prepare_wire_manifold(
-            subtract_path, groove_exp, axis, label='with_leads')
-        t1 = time.perf_counter()
-        print(f"    Wire ready ({t1 - t0:.2f} s)")
+        coil_wire = prepare_wire_manifold(align_path, groove_exp, axis, label='coil')
+        print(f"    Coil wire ready ({time.perf_counter() - t0:.2f} s)")
+        print()
+
+        step += 1
+        print(f"  [{step}/{total_steps}] Preparing leads mesh (legacy pass 2)...")
+        t0 = time.perf_counter()
+        lead_mans = prepare_lead_components(
+            leads_path, lead_groove_exp, label='leads')
+        wire_subtractors = [coil_wire] + lead_mans
+        print(f"    Leads ready ({time.perf_counter() - t0:.2f} s)")
         print()
 
     step += 1
@@ -517,27 +612,38 @@ def run_shell_split(
 
     step += 1
     print(f"  [{step}/{total_steps}] Boolean subtraction...")
-    if two_pass:
-        print("    Pass 1 — coil grooves...")
-        result_a = subtract_wire_from_shell(shell_a, coil_wire, f'A (g_{layer}a)')
-        result_b = subtract_wire_from_shell(shell_b, coil_wire, f'B (g_{layer}b)')
-        if coil_wire_fat is not None:
-            print(f"    Pass 1b — extra coil cut ({second_exp * 1000:.2f} mm)...")
-            result_a = subtract_wire_from_shell(result_a, coil_wire_fat, f'A 2nd')
-            result_b = subtract_wire_from_shell(result_b, coil_wire_fat, f'B 2nd')
-        print("    Pass 2 — lead grooves...")
-        result_a = subtract_wire_from_shell(result_a, leads_wire, f'A leads')
-        result_b = subtract_wire_from_shell(result_b, leads_wire, f'B leads')
-    else:
+    if mode == 'with_leads':
         print("    Single pass — with_leads mesh...")
-        result_a = subtract_wire_from_shell(shell_a, coil_wire, f'A (g_{layer}a)')
-        result_b = subtract_wire_from_shell(shell_b, coil_wire, f'B (g_{layer}b)')
-    if skin_trim > 0:
-        print(f"    Pass 3 — peel outer {skin_trim * 1000:.2f} mm skin...")
-        limiter = build_radius_limiter(fusion_dims, align_dims['axial_center'],
-                                         skin_trim)
-        result_a = trim_outer_skin(result_a, limiter, f'A (g_{layer}a)')
-        result_b = trim_outer_skin(result_b, limiter, f'B (g_{layer}b)')
+    elif mode == 'with_leads_by_component':
+        print(f"    By component — coil_open + {len(wire_subtractors) - 1} lead(s)...")
+    else:
+        print("    Legacy two_pass — closed coil + leads...")
+    result_a = subtract_wires_from_shell(shell_a, wire_subtractors, f'A (g_{layer}a)')
+    result_b = subtract_wires_from_shell(shell_b, wire_subtractors, f'B (g_{layer}b)')
+    if coil_wire_fat is not None:
+        print(f"    Extra coil cut ({second_exp * 1000:.2f} mm)...")
+        result_a = subtract_wire_from_shell(result_a, coil_wire_fat, f'A 2nd')
+        result_b = subtract_wire_from_shell(result_b, coil_wire_fat, f'B 2nd')
+    if outer_pad > 0 or skin_trim > 0:
+        limiter_design = build_radius_limiter(
+            fusion_dims, align_dims['axial_center'], skin_trim)
+        if outer_pad > 0:
+            print(f"    Pass 3 — restore design outer "
+                  f"({fusion_dims['outer_r_m']*1000 - skin_trim*1000:.2f} mm)...")
+            result_a = intersect_with_limiter(
+                result_a, limiter_design, f'A (g_{layer}a)',
+                f"Restoring design outer ({outer_pad * 1000:.2f} mm pad removed)")
+            result_b = intersect_with_limiter(
+                result_b, limiter_design, f'B (g_{layer}b)',
+                f"Restoring design outer ({outer_pad * 1000:.2f} mm pad removed)")
+        elif skin_trim > 0:
+            print(f"    Pass 3 — peel outer {skin_trim * 1000:.2f} mm skin...")
+            result_a = intersect_with_limiter(
+                result_a, limiter_design, f'A (g_{layer}a)',
+                f"Trimming outer {skin_trim * 1000:.2f} mm skin")
+            result_b = intersect_with_limiter(
+                result_b, limiter_design, f'B (g_{layer}b)',
+                f"Trimming outer {skin_trim * 1000:.2f} mm skin")
     print()
 
     step += 1

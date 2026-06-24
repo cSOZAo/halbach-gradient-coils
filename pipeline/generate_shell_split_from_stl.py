@@ -7,7 +7,8 @@ Output: ``<stem>_shell_g<layer>a.stl`` and ``<stem>_shell_g<layer>b.stl`` in the
 
 Sibling STLs in that folder are picked up automatically when present:
   - ``<stem>.stl``            coil-only (alignment)
-  - ``<stem>_leads_only.stl`` leads pass 2
+  - ``<stem>_coil_open.stl``  open loop (component mode)
+  - ``<stem>_leads_only.stl`` lead tubes (component / legacy mode)
 
 Usage:
     1. Set WIRE_WITH_LEADS_STL below.
@@ -32,7 +33,7 @@ from generate_coil_shell_split import run_shell_split
 # USER PARAMETER — set your wire STL path here
 # =============================================================================
 
-WIRE_WITH_LEADS_STL = r"C:\Clemente\VSCode\pyCoilGen-0.2.4\pyCoilGen-0.2.4\pruebas\resultados\resultados_grande_y\final_2\Gradient_Gy_tk2500_lvl26_wire_0_z_with_leads.stl"
+WIRE_WITH_LEADS_STL = ''  # set path, or pass on command line
 
 # =============================================================================
 
