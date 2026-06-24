@@ -20,13 +20,14 @@ an inlet and an outlet.  This script:
 Run:
     python add_coil_leads.py
 
-Output: ``<name>_with_leads.stl`` plus verify PNGs.
+Output: ``<name>_with_leads.stl``, ``<name>_coil_open.stl``, ``<name>_leads_only.stl``.
 
 Dependencies:
-    pip install trimesh matplotlib
+    pip install trimesh
 """
 
 import os
+import sys
 from collections import defaultdict, deque
 
 import numpy as np
@@ -38,10 +39,18 @@ import trimesh
 # =============================================================================
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = os.path.join(SCRIPT_DIR, 'output')
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
-INPUT_STL = os.path.join(
-    OUTPUT_DIR, 'Gradient_Gy_tk2500_lvl26_wire_0_z.stl')
+from output_utils import resolve_wire_stl_path, standalone_design_dir, unique_lead_output_paths
+
+GRADIENT_AXIS = 'y'
+TIKHONOV_FACTOR = 2500
+NUM_LEVELS = 26
+
+OUTPUT_DIR = standalone_design_dir(GRADIENT_AXIS, TIKHONOV_FACTOR, NUM_LEVELS)
+INPUT_STL = resolve_wire_stl_path(OUTPUT_DIR, GRADIENT_AXIS, TIKHONOV_FACTOR, NUM_LEVELS)
 
 LEAD_DIRECTION = np.array([-1.0, 0.0, 0.0])
 SECTOR_MIN_Z = 0.10
@@ -70,34 +79,6 @@ LEAD_0_SPREAD_SIGN = 1
 LEAD_1_SPREAD_SIGN = -1
 EXIT_DIRECTION = None
 
-
-INPUT_STL = cfg.wire_stl_path(with_leads=False)
-LEAD_DIRECTION = cfg.LEAD_DIRECTION
-SECTOR_MIN_Z = cfg.SECTOR_MIN_Z
-SECTOR_MAX_ABS_Y = cfg.SECTOR_MAX_ABS_Y
-CYL_AXIS = cfg.CYL_AXIS
-SHELL_RADIUS = cfg.SHELL_RADIUS
-CONDUCTOR_WIDTH = cfg.CONDUCTOR_WIDTH
-CROSS_SECTION_A_FRAC = cfg.CROSS_SECTION_A_FRAC
-CROSS_SECTION_B_FRAC = cfg.CROSS_SECTION_B_FRAC
-CROSS_SECTION_N = cfg.CROSS_SECTION_N
-CS_BLEND_RINGS = cfg.CS_BLEND_RINGS
-JUNCTION_RIGID_STEPS = cfg.JUNCTION_RIGID_STEPS
-JUNCTION_PLANE_RINGS = cfg.JUNCTION_PLANE_RINGS
-CUT_LOOP_LENGTH = cfg.CUT_LOOP_LENGTH
-GAP_AXIAL_LENGTH = cfg.GAP_AXIAL_LENGTH
-WIRE_ISOLATE_HALF = cfg.WIRE_ISOLATE_HALF
-TANGENT_RADIUS = cfg.TANGENT_RADIUS
-WIRE_TANGENT_RUN = cfg.WIRE_TANGENT_RUN
-FACE_TOWARD_GAP = cfg.FACE_TOWARD_GAP
-PEEL_OUT = cfg.PEEL_OUT
-LEAD_LENGTH = cfg.LEAD_LENGTH
-LEAD_BLEND = cfg.LEAD_BLEND
-TIP_FAN = cfg.TIP_FAN
-LEAD_STEPS = cfg.LEAD_STEPS
-LEAD_0_SPREAD_SIGN = cfg.LEAD_0_SPREAD_SIGN
-LEAD_1_SPREAD_SIGN = cfg.LEAD_1_SPREAD_SIGN
-EXIT_DIRECTION = cfg.EXIT_DIRECTION
 
 # =============================================================================
 #  END OF SETTINGS
@@ -771,45 +752,6 @@ def _verify_result(final_mesh, n_coil_vertices, apex, axis_hat, shell_radius,
         print(f"  Lead {i} cross-sect  : mean radius {info['cs_mean'] * 1e3:.2f} mm, "
               f"span {info['cs_span'] * 1e3:.2f} mm")
 
-    rad = max(LEAD_LENGTH * 1.4, 0.04)
-    dist = np.linalg.norm(final_mesh.vertices - apex, axis=1)
-    crop_faces = final_mesh.faces[np.all(dist[final_mesh.faces] < rad, axis=1)]
-
-    try:
-        import matplotlib
-        matplotlib.use('Agg')
-        import matplotlib.pyplot as plt
-
-        lead_v = final_mesh.vertices[n_coil_vertices:]
-        for name, (elev, azim) in {'iso': (24, -60),
-                                    'sideY': (0, 90),
-                                    'sideZ': (12, 0)}.items():
-            fig = plt.figure(figsize=(9, 7))
-            ax = fig.add_subplot(111, projection='3d')
-            vs = final_mesh.vertices
-            step = max(1, len(crop_faces) // 4000)
-            ax.plot_trisurf(vs[:, 0], vs[:, 1], vs[:, 2],
-                            triangles=crop_faces[::step],
-                            color='steelblue', alpha=0.45, linewidth=0)
-            ax.scatter(lead_v[:, 0], lead_v[:, 1], lead_v[:, 2],
-                       s=3, c='lime', alpha=0.85, label='leads')
-            ax.set_xlim(apex[0] - rad, apex[0] + rad)
-            ax.set_ylim(apex[1] - rad, apex[1] + rad)
-            ax.set_zlim(apex[2] - rad, apex[2] + rad)
-            try:
-                ax.set_box_aspect((1, 1, 1))
-            except Exception:
-                pass
-            ax.view_init(elev=elev, azim=azim)
-            ax.set_title(f'Lead junction ({name})')
-            ax.legend(loc='upper right', fontsize=8)
-            png = os.path.splitext(output_stl)[0] + f'_verify_{name}.png'
-            fig.savefig(png, dpi=150, bbox_inches='tight')
-            plt.close(fig)
-            print(f"  Verify image   : {png}")
-    except Exception as exc:
-        print(f"  (Could not write verify image: {exc})")
-
     status = 'OK - watertight' if n_boundary == 0 else f'{n_boundary} open edges'
     print(f"  Boundary edges : {n_boundary}  ({status})")
     return n_boundary == 0
@@ -827,10 +769,7 @@ def main():
     if not os.path.isfile(input_stl):
         raise FileNotFoundError(f"STL file not found: {input_stl}")
 
-    base, ext = os.path.splitext(input_stl)
-    output_stl = base + "_with_leads" + ext
-    leads_only_stl = base + "_leads_only" + ext
-    coil_open_stl = base + "_coil_open" + ext
+    output_stl, coil_open_stl, leads_only_stl = unique_lead_output_paths(input_stl)
     print(f"\nInput  : {input_stl}") 
     print(f"Output : {output_stl}\n")
 

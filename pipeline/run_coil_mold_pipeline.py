@@ -32,16 +32,25 @@ def _ensure_wire_exists() -> None:
             sys.exit(1)
 
 
-def _run_gradient_script() -> None:
+def _run_gradient_script(run_dir: str) -> None:
     """Run gradiente_belen_santi_main.py as a subprocess (script has no main())."""
     import subprocess
 
+    cfg.set_results_dir(run_dir)
     script = os.path.join(cfg.PIPELINE_DIR, 'gradiente_belen_santi_main.py')
     print(f"  Executing: {script}")
     print("  NOTE: edit coil_mold_common.py before relying on this step.")
-    result = subprocess.run([sys.executable, script], cwd=cfg.PIPELINE_DIR, check=False)
+    env = {**os.environ, cfg.RESULTS_DIR_ENV: run_dir}
+    result = subprocess.run(
+        [sys.executable, script],
+        cwd=cfg.PIPELINE_DIR,
+        env=env,
+        check=False,
+    )
     if result.returncode != 0:
         sys.exit(result.returncode)
+    cfg.set_results_dir(run_dir)
+    cfg.sync_project_stem_from_disk()
 
 
 def _sync_leads_params() -> None:
@@ -77,19 +86,21 @@ def _sync_leads_params() -> None:
 
 
 def main() -> None:
+    run_dir = cfg.init_pipeline_run()
+    cfg.set_results_dir(run_dir)
     print("=" * 70)
     print("  Coil negative-mold pipeline")
     print("=" * 70)
     print(f"  Gradient axis : G{cfg.GRADIENT_AXIS}")
     print(f"  Layer         : {cfg.GRADIENT_LAYER}")
-    print(f"  Results dir   : {cfg.RESULTS_DIR}")
+    print(f"  Results dir   : {run_dir}")
     print(f"  Steps         : gradient={cfg.RUN_GRADIENT}  "
           f"leads={cfg.RUN_LEADS}  shell={cfg.RUN_SHELL}")
     print()
 
     if cfg.RUN_GRADIENT:
         print("[1/3] Running pyCoilGen (gradiente_belen_santi_main)...")
-        _run_gradient_script()
+        _run_gradient_script(run_dir)
         print()
     else:
         _ensure_wire_exists()
@@ -103,6 +114,7 @@ def main() -> None:
 
     if cfg.RUN_SHELL:
         print("[3/3] Carving shell halves (generate_coil_shell_split)...")
+        cfg.refresh_stl_paths()
         import generate_coil_shell_split as shell
         shell.main()
         print()

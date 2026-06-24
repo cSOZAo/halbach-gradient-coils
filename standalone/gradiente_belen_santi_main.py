@@ -80,8 +80,17 @@ FASTHENRY_CONDUCTOR_HEIGHT = (np.pi / 2.0) * CROSS_SECTION_A_FRAC * CONDUCTOR_WI
 SPECIFIC_CONDUCTIVITY_CONDUCTOR = 1.8e-8      # [Ohm*m] copper resistivity used by pyCoilGen
 
 # ---- Output ------------------------------------------------------------
-BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
-RUTA_SALIDA  = os.path.join(SCRIPT_DIR, 'output')
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from output_utils import (
+    gradient_project_stem as base_gradient_stem,
+    standalone_design_dir,
+    unique_stem,
+    write_active_stem,
+)
+
+RUTA_SALIDA  = standalone_design_dir(GRADIENT_AXIS, TIKHONOV_FACTOR, NUM_LEVELS)
 TARGET_DIR   = os.path.join(RUTA_SALIDA, 'target_fields')
 
 # =============================================================================
@@ -204,6 +213,12 @@ cross_sectional_points = np.vstack([
 
 os.chdir(RUTA_SALIDA)   # pyCoilGen resolves target_fields/ relative to CWD
 
+project_stem = unique_stem(
+    RUTA_SALIDA,
+    base_gradient_stem(GRADIENT_AXIS, TIKHONOV_FACTOR, NUM_LEVELS),
+)
+write_active_stem(RUTA_SALIDA, project_stem)
+
 cylinder_mesh_parameter_list = [
     CYL_HEIGHT, CYL_RADIUS,          # height, radius  [m]
     CYL_N_CIRC, CYL_N_LONG,          # divisions: circular, longitudinal
@@ -249,8 +264,7 @@ arg_dict = {
     # --- output ---
     'output_directory':             RUTA_SALIDA,
     'field_shape_function':         INTERNAL_AXIS,
-    'project_name':                 f'Gradient_G{GRADIENT_AXIS}'
-                                    f'_tk{int(TIKHONOV_FACTOR)}_lvl{NUM_LEVELS}',
+    'project_name':                 project_stem,
 }
 
 print("\n" + "=" * 70)

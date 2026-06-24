@@ -32,6 +32,11 @@ import manifold3d as m3d
 
 import coil_mold_common as cfg
 
+if cfg.PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, cfg.PROJECT_ROOT)
+
+from output_utils import unique_path
+
 
 # Re-export user-facing knobs from the shared config (edit coil_mold_common.py).
 SUBTRACT_WIRE_STL = cfg.SUBTRACT_WIRE_STL
@@ -657,7 +662,7 @@ def run_shell_split(
             result_tm.vertices *= 1000.0
 
         out_name = f"{shell_base}_g{layer}{label}.stl"
-        out_path = os.path.join(out_dir, out_name)
+        out_path = unique_path(os.path.join(out_dir, out_name))
         result_tm.export(out_path)
 
         unit = 'mm' if export_mm else 'm'
@@ -681,7 +686,8 @@ def run_shell_split(
 
 
 def main():
-    run_shell_split(SUBTRACT_WIRE_STL)
+    cfg.refresh_stl_paths()
+    run_shell_split(cfg.SUBTRACT_WIRE_STL)
 
 
 if __name__ == '__main__':

@@ -32,6 +32,8 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 from pyCoilGen.pyCoilGen_release import pyCoilGen
 
+from output_utils import gradient_project_stem as base_gradient_stem, unique_stem
+
 # All design knobs live in coil_mold_common.py
 GRADIENT_AXIS = cfg.GRADIENT_AXIS
 TARGET_RX = cfg.TARGET_RX
@@ -59,6 +61,8 @@ CROSS_SECTION_B_FRAC = cfg.CROSS_SECTION_B_FRAC
 ENABLE_FASTHENRY = cfg.ENABLE_FASTHENRY
 FASTHENRY_BIN = cfg.FASTHENRY_BIN
 SPECIFIC_CONDUCTIVITY_CONDUCTOR = cfg.SPECIFIC_CONDUCTIVITY_CONDUCTOR
+if not cfg.RESULTS_DIR:
+    cfg.ensure_pipeline_output_dir()
 RUTA_SALIDA = cfg.RESULTS_DIR
 TARGET_DIR = cfg.target_fields_dir()
 
@@ -187,6 +191,12 @@ cross_sectional_points = np.vstack([
 
 os.chdir(RUTA_SALIDA)   # pyCoilGen resolves target_fields/ relative to CWD
 
+project_stem = unique_stem(
+    RUTA_SALIDA,
+    base_gradient_stem(GRADIENT_AXIS, TIKHONOV_FACTOR, NUM_LEVELS),
+)
+cfg.set_project_stem(project_stem)
+
 cylinder_mesh_parameter_list = [
     CYL_HEIGHT, CYL_RADIUS,          # height, radius  [m]
     CYL_N_CIRC, CYL_N_LONG,          # divisions: circular, longitudinal
@@ -232,8 +242,7 @@ arg_dict = {
     # --- output ---
     'output_directory':             RUTA_SALIDA,
     'field_shape_function':         INTERNAL_AXIS,
-    'project_name':                 f'Gradient_G{GRADIENT_AXIS}'
-                                    f'_tk{int(TIKHONOV_FACTOR)}_lvl{NUM_LEVELS}',
+    'project_name':                 project_stem,
 }
 
 print("\n" + "=" * 70)

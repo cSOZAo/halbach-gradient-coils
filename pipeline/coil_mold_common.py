@@ -12,17 +12,31 @@ individual scripts or run ``run_coil_mold_pipeline.py``.
 from __future__ import annotations
 
 import os
+import sys
 from typing import Dict, Tuple
 
 import numpy as np
 import trimesh
 
+PIPELINE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(PIPELINE_DIR)
+
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from output_utils import (
+    PIPELINE_OUTPUT_BASE,
+    design_folder_name,
+    gradient_project_stem as _default_gradient_project_stem,
+    read_active_stem,
+    unique_run_dir,
+    write_active_stem,
+)
+
 # =============================================================================
 # USER PARAMETERS — single source of truth for the mold workflow
 # =============================================================================
 
-PIPELINE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(PIPELINE_DIR)
 PYCOILGEN_ROOT = os.path.dirname(PROJECT_ROOT)
 BASE_DIR = PROJECT_ROOT
 
@@ -38,7 +52,7 @@ RESOL_RADIAL = 8
 RESOL_ANGULAR = 28
 
 CYL_HEIGHT = 0.43               # [m]
-CYL_RADIUS = 0.151              # [m]
+CYL_RADIUS = 0.150              # [m]
 CYL_N_CIRC = 200
 CYL_N_LONG = 10
 CYL_ROT_AXIS = (0, 1, 0)
@@ -51,7 +65,7 @@ NORMAL_SHIFT = -0.005
 NORMAL_SHIFT_SMOOTH = [7, 7, 7]
 
 CONDUCTOR_WIDTH = 0.0023
-CROSS_SECTION_A_FRAC = 2.0
+CROSS_SECTION_A_FRAC = 1.6
 CROSS_SECTION_B_FRAC = 1.0
 CROSS_SECTION_N = 12
 
@@ -61,34 +75,130 @@ SPECIFIC_CONDUCTIVITY_CONDUCTOR = 1.8e-8
 SMOOTH_FACTOR = 3
 
 # ---- Result paths -----------------------------------------------------------
-RESULTS_DIR = os.path.join(
-    PROJECT_ROOT, 'resultados', f'resultados_grande_{GRADIENT_AXIS}', 'final',
-)
+# Pipeline outputs: resultados/pipeline/Gy_tk2500_lvl26/ (or …(2) on re-run).
+# Set by init_pipeline_run() before the first pipeline step.
+RESULTS_DIR_ENV = 'COIL_MOLD_RESULTS_DIR'
+RESULTS_DIR = ''
+PROJECT_STEM = ''
+
+
+def design_run_stem() -> str:
+    return design_folder_name(GRADIENT_AXIS, TIKHONOV_FACTOR, NUM_LEVELS)
+
+
+def gradient_project_stem() -> str:
+    return PROJECT_STEM or _default_gradient_project_stem(
+        GRADIENT_AXIS, TIKHONOV_FACTOR, NUM_LEVELS,
+    )
+
+
+def set_project_stem(stem: str) -> None:
+    global PROJECT_STEM
+    PROJECT_STEM = stem
+    if RESULTS_DIR:
+        write_active_stem(RESULTS_DIR, stem)
+
+
+def set_results_dir(path: str) -> str:
+    """Pin output to an existing run folder (used by the pipeline orchestrator)."""
+    global RESULTS_DIR
+    RESULTS_DIR = os.path.abspath(path)
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    return RESULTS_DIR
+
+
+def results_dir_from_env() -> str:
+    """Return RESULTS_DIR passed by run_coil_mold_pipeline.py to child scripts."""
+    return os.environ.get(RESULTS_DIR_ENV, '').strip()
+
+
+def sync_project_stem_from_disk() -> str:
+    """Reload PROJECT_STEM from .active_project_stem after an external step."""
+    if not RESULTS_DIR:
+        return PROJECT_STEM
+    stem = read_active_stem(RESULTS_DIR, gradient_project_stem())
+    if stem:
+        set_project_stem(stem)
+    return PROJECT_STEM
+
+
+def get_results_dir() -> str:
+    """Return the active pipeline run folder (must already be allocated)."""
+    if not RESULTS_DIR:
+        raise RuntimeError(
+            'RESULTS_DIR is not set. Run run_coil_mold_pipeline.py, or call '
+            'ensure_pipeline_output_dir() before using path helpers.',
+        )
+    return RESULTS_DIR
+
+
+def ensure_pipeline_output_dir() -> str:
+    """
+    Resolve RESULTS_DIR for a pipeline step.
+
+    Order: existing global → env var from orchestrator → new run folder.
+    """
+    if RESULTS_DIR:
+        return RESULTS_DIR
+    env_dir = results_dir_from_env()
+    if env_dir:
+        return set_results_dir(env_dir)
+    return init_pipeline_run()
+
+
+def init_pipeline_run() -> str:
+    """Allocate one run folder under resultados/pipeline/ (once per process)."""
+    global RESULTS_DIR, PROJECT_STEM
+    if RESULTS_DIR:
+        return RESULTS_DIR
+    RESULTS_DIR = unique_run_dir(PIPELINE_OUTPUT_BASE, design_run_stem())
+    PROJECT_STEM = ''
+    return RESULTS_DIR
 
 
 def target_fields_dir() -> str:
-    return os.path.join(RESULTS_DIR, 'target_fields')
+    return os.path.join(get_results_dir(), 'target_fields')
+
 
 def wire_stem() -> str:
     """Base filename (no extension) for the exported wire STL."""
-    return f'Gradient_G{GRADIENT_AXIS}_tk{TIKHONOV_FACTOR}_lvl{NUM_LEVELS}_wire_0_z'
+    return f'{gradient_project_stem()}_wire_0_z'
 
 
 def wire_stl_path(with_leads: bool = False) -> str:
-    stem = wire_stem()
-    if with_leads:
-        stem += '_with_leads'
-    return os.path.join(RESULTS_DIR, f'{stem}.stl')
+    from output_utils import resolve_lead_stl_paths, resolve_wire_stl_path
+
+    wire = resolve_wire_stl_path(
+        get_results_dir(), GRADIENT_AXIS, TIKHONOV_FACTOR, NUM_LEVELS,
+    )
+    if not with_leads:
+        return wire
+    with_leads_path, _, _ = resolve_lead_stl_paths(wire)
+    return with_leads_path
 
 
 def leads_stl_path() -> str:
     """Standalone lead tubes exported by add_coil_leads.py."""
-    return os.path.join(RESULTS_DIR, f'{wire_stem()}_leads_only.stl')
+    return os.path.join(get_results_dir(), f'{wire_stem()}_leads_only.stl')
 
 
 def coil_open_stl_path() -> str:
     """Open gradient loop (cut gap, no leads) exported by add_coil_leads.py."""
-    return os.path.join(RESULTS_DIR, f'{wire_stem()}_coil_open.stl')
+    return os.path.join(get_results_dir(), f'{wire_stem()}_coil_open.stl')
+
+
+def refresh_stl_paths() -> None:
+    """Resolve wire / lead STL paths after gradient or leads steps."""
+    from output_utils import resolve_lead_stl_paths, resolve_wire_stl_path
+
+    global ALIGN_WIRE_STL, COIL_OPEN_STL, LEADS_WIRE_STL, SUBTRACT_WIRE_STL
+    results = get_results_dir()
+    ALIGN_WIRE_STL = resolve_wire_stl_path(
+        results, GRADIENT_AXIS, TIKHONOV_FACTOR, NUM_LEVELS,
+    )
+    SUBTRACT_WIRE_STL, COIL_OPEN_STL, LEADS_WIRE_STL = resolve_lead_stl_paths(
+        ALIGN_WIRE_STL,
+    )
 
 
 # ---- Fusion 360 printable shell halves --------------------------------------
@@ -120,10 +230,10 @@ GRADIENT_LAYER = 2
 #   'with_leads_by_component' — coil_open + leads_only sequentially (stable)
 #   'two_pass'                — legacy closed coil + leads_only (extra gap groove)
 SUBTRACT_MODE = 'with_leads'
-ALIGN_WIRE_STL = wire_stl_path(with_leads=False)
-COIL_OPEN_STL = coil_open_stl_path()
-LEADS_WIRE_STL = leads_stl_path()
-SUBTRACT_WIRE_STL = wire_stl_path(with_leads=True)
+ALIGN_WIRE_STL = ''
+COIL_OPEN_STL = ''
+LEADS_WIRE_STL = ''
+SUBTRACT_WIRE_STL = ''
 
 # Normal expansion along wire surface normals before boolean subtraction.
 # Widens grooves slightly and helps merge overlapping turns in dense areas.
@@ -179,7 +289,7 @@ JUNCTION_RIGID_STEPS = 2
 JUNCTION_PLANE_RINGS = 4
 
 # ---- Pipeline control (run_coil_mold_pipeline.py) ---------------------------
-RUN_GRADIENT = False             # True -> invoke pyCoilGen (slow)
+RUN_GRADIENT = True             # True -> invoke pyCoilGen (slow)
 RUN_LEADS = True
 RUN_SHELL = True
 

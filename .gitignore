@@ -1,6 +1,5 @@
-# Simulation outputs (STLs, pickles, plots) — keep out of git
+# Simulation outputs (STLs, pickles) — keep out of git
 /resultados/
-/standalone/output/
 
 # Python / logs
 __pycache__/

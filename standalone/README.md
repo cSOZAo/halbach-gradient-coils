@@ -2,7 +2,10 @@
 
 Each script has a **USER PARAMETERS** block at the top. No `coil_mold_common.py`.
 
-Default output folder: `standalone/output/`
+Default output folder: ``../resultados/standalone/Gy_tk2500_lvl26/``
+
+Re-running with the same axis / Tikhonov / levels appends ``(2)``, ``(3)``, … to
+filenames instead of overwriting. PNG verify images are not saved.
 
 ```bash
 python gradiente_belen_santi_main.py

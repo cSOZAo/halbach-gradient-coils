@@ -26,9 +26,17 @@ import trimesh
 import trimesh.smoothing
 import manifold3d as m3d
 
-
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from output_utils import (
+    resolve_lead_stl_paths,
+    resolve_wire_stl_path,
+    standalone_design_dir,
+    unique_path,
+)
 
 # ---- USER PARAMETERS --------------------------------------------------------
 GRADIENT_AXIS = 'y'
@@ -36,15 +44,13 @@ TIKHONOV_FACTOR = 2500
 NUM_LEVELS = 26
 GRADIENT_LAYER = 2
 
-OUTPUT_DIR = os.path.join(SCRIPT_DIR, 'output')
+OUTPUT_DIR = standalone_design_dir(GRADIENT_AXIS, TIKHONOV_FACTOR, NUM_LEVELS)
 SHELL_STL_DIR = os.path.join(PROJECT_ROOT, 'assets', 'cilindros_gradientes_grandes')
 
-def _wire_stem():
-    return f'Gradient_G{GRADIENT_AXIS}_tk{TIKHONOV_FACTOR}_lvl{NUM_LEVELS}_wire_0_z'
-
-SUBTRACT_WIRE_STL = os.path.join(OUTPUT_DIR, _wire_stem() + '_with_leads.stl')
-ALIGN_WIRE_STL = os.path.join(OUTPUT_DIR, _wire_stem() + '.stl')
-LEADS_WIRE_STL = os.path.join(OUTPUT_DIR, _wire_stem() + '_leads_only.stl')
+ALIGN_WIRE_STL = resolve_wire_stl_path(
+    OUTPUT_DIR, GRADIENT_AXIS, TIKHONOV_FACTOR, NUM_LEVELS,
+)
+SUBTRACT_WIRE_STL, _COIL_OPEN_STL, LEADS_WIRE_STL = resolve_lead_stl_paths(ALIGN_WIRE_STL)
 
 CYL_ROT_AXIS = (0, 1, 0)
 CYL_ROT_ANGLE = 3.141592653589793 / 2
@@ -751,7 +757,7 @@ def run_shell_split(
             result_tm.vertices *= 1000.0
 
         out_name = f"{shell_base}_g{layer}{label}.stl"
-        out_path = os.path.join(out_dir, out_name)
+        out_path = unique_path(os.path.join(out_dir, out_name))
         result_tm.export(out_path)
 
         unit = 'mm' if export_mm else 'm'
