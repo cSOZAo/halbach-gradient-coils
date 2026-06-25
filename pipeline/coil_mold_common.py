@@ -274,13 +274,16 @@ SECTOR_MAX_ABS_Y = 0.05
 CYL_AXIS = None                  # None -> infer from LEAD_DIRECTION
 SHELL_RADIUS = None              # None -> infer from mesh
 
-CUT_LOOP_LENGTH = 0.040
+CUT_LOOP_LENGTH = 0.050
 GAP_AXIAL_LENGTH = 0.012
 WIRE_ISOLATE_HALF = 0.008
 TANGENT_RADIUS = 0.006
 WIRE_TANGENT_RUN = 0.004
 FACE_TOWARD_GAP = 0.003
 PEEL_OUT = 0.006
+# Short backward runs at the weld so the subtractor eats corner flash on the mold.
+LEAD_JUNCTION_COIL_BACKSET = 0.003   # [m] into remaining coil along loop (−peel dir)
+LEAD_JUNCTION_GAP_BACKSET = 0.002    # [m] toward gap mid-plane between cut faces
 LEAD_LENGTH = 0.02
 LEAD_BLEND = 0.030
 TIP_FAN = 0.015

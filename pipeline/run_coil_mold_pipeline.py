@@ -73,6 +73,8 @@ def _sync_leads_params() -> None:
     leads.WIRE_TANGENT_RUN = cfg.WIRE_TANGENT_RUN
     leads.FACE_TOWARD_GAP = cfg.FACE_TOWARD_GAP
     leads.PEEL_OUT = cfg.PEEL_OUT
+    leads.LEAD_JUNCTION_COIL_BACKSET = cfg.LEAD_JUNCTION_COIL_BACKSET
+    leads.LEAD_JUNCTION_GAP_BACKSET = cfg.LEAD_JUNCTION_GAP_BACKSET
     leads.LEAD_LENGTH = cfg.LEAD_LENGTH
     leads.LEAD_BLEND = cfg.LEAD_BLEND
     leads.TIP_FAN = cfg.TIP_FAN

@@ -65,6 +65,8 @@ TANGENT_RADIUS = cfg.TANGENT_RADIUS
 WIRE_TANGENT_RUN = cfg.WIRE_TANGENT_RUN
 FACE_TOWARD_GAP = cfg.FACE_TOWARD_GAP
 PEEL_OUT = cfg.PEEL_OUT
+LEAD_JUNCTION_COIL_BACKSET = cfg.LEAD_JUNCTION_COIL_BACKSET
+LEAD_JUNCTION_GAP_BACKSET = cfg.LEAD_JUNCTION_GAP_BACKSET
 LEAD_LENGTH = cfg.LEAD_LENGTH
 LEAD_BLEND = cfg.LEAD_BLEND
 TIP_FAN = cfg.TIP_FAN
@@ -383,6 +385,39 @@ def _profile_ring_2d(wire_profile, ring_3d, n_pts):
     return oval_2d, cs_mean, cs_span, cut_2d
 
 
+def _junction_backset_rings(ring_3d, toward_gap, outward, axis_hat, shell_radius,
+                            coil_backset, gap_backset, n_steps):
+    """
+    Extra cross-section rings at the weld to eat corner flash on the mold.
+
+    Stays attached to the cut-face ring (not the centre-line) so path[0] remains
+    the weld point for RMF alignment.
+    """
+    rings = []
+    out = np.asarray(outward, dtype=float)
+    out /= np.linalg.norm(out)
+    tg = np.asarray(toward_gap, dtype=float)
+    tg /= np.linalg.norm(tg)
+
+    if gap_backset > 1e-6:
+        n_g = max(2, n_steps // 32)
+        for t in np.linspace(gap_backset / n_g, gap_backset, n_g):
+            ring = ring_3d + t * tg
+            rings.append(np.array([
+                _snap_to_shell(p, axis_hat, shell_radius) for p in ring
+            ]))
+
+    if coil_backset > 1e-6:
+        n_b = max(2, n_steps // 32)
+        for t in np.linspace(coil_backset / n_b, coil_backset, n_b):
+            ring = ring_3d - t * out
+            rings.append(np.array([
+                _snap_to_shell(p, axis_hat, shell_radius) for p in ring
+            ]))
+
+    return rings
+
+
 def _lead_centerline(p0, wire_tangent, toward_gap, outward, tip, exit_dir,
                      axis_hat, shell_radius, wire_run, face_in, peel_out,
                      blend, tip_fan, n_steps):
@@ -606,7 +641,10 @@ def _build_attached_lead(ring_indices, vertices, wire_profile, wire_tangent,
         Bn = -s_ * N[i] + c_ * B[i]
         N[i], B[i] = Nn, Bn
 
-    extra_rings = []
+    extra_rings = _junction_backset_rings(
+        ring_3d, toward_gap, outward, axis_hat, shell_radius,
+        LEAD_JUNCTION_COIL_BACKSET, LEAD_JUNCTION_GAP_BACKSET, n_steps,
+    )
     blend_n = max(1, CS_BLEND_RINGS)
     n_rigid = min(JUNCTION_RIGID_STEPS, n_path - 1)
     n_plane = min(JUNCTION_PLANE_RINGS, n_path - 1 - n_rigid)
@@ -637,20 +675,22 @@ def _build_attached_lead(ring_indices, vertices, wire_profile, wire_tangent,
             + np.outer(r2d[:, 1], Bi)
         )
 
+    n_ring = len(extra_rings)
     cap_center = extra_rings[-1].mean(axis=0)
     extra_vertices = np.vstack(extra_rings + [cap_center[None, :]])
 
+    # Local indices: 0..n_pts-1 = weld ring (on open_mesh); n_pts.. = extra body.
     faces = []
-    cap_local = n_path * n_pts
-    for i in range(n_path - 1):
-        row_a = np.arange(i * n_pts, i * n_pts + n_pts)
-        row_b = np.arange((i + 1) * n_pts, (i + 1) * n_pts + n_pts)
+    cap_local = n_pts + n_ring * n_pts
+    for i in range(n_ring):
+        row_a = np.arange(i * n_pts, (i + 1) * n_pts)
+        row_b = np.arange((i + 1) * n_pts, (i + 2) * n_pts)
         for j in range(n_pts):
             jn = (j + 1) % n_pts
             a, b = row_a[j], row_a[jn]
             c, d = row_b[j], row_b[jn]
             faces += [[a, b, d], [a, d, c]]
-    last_ring = np.arange((n_path - 1) * n_pts, n_path * n_pts)
+    last_ring = np.arange(n_pts + (n_ring - 1) * n_pts, n_pts + n_ring * n_pts)
     for j in range(n_pts):
         faces.append([last_ring[j], cap_local, last_ring[(j + 1) % n_pts]])
 
@@ -660,7 +700,7 @@ def _build_attached_lead(ring_indices, vertices, wire_profile, wire_tangent,
         'tip': np.asarray(path[-1], dtype=float),
         'cs_mean': cs_mean,
         'cs_span': cs_span,
-        'n_path': n_path,
+        'n_path': n_ring + 1,
         'approach_run': 0.0,
     }
 
@@ -914,6 +954,8 @@ def main():
     print(f"  Wire tangent   : {WIRE_TANGENT_RUN * 1e3:.1f} mm")
     print(f"  Face-in run    : {FACE_TOWARD_GAP * 1e3:.1f} mm")
     print(f"  Peel-out run   : {PEEL_OUT * 1e3:.1f} mm")
+    print(f"  Junction backset: coil {LEAD_JUNCTION_COIL_BACKSET * 1e3:.1f} mm  "
+          f"gap {LEAD_JUNCTION_GAP_BACKSET * 1e3:.1f} mm")
     print(f"  Tip fan        : {TIP_FAN * 1e3:.1f} mm")
     print(f"  Conductor oval : {CONDUCTOR_WIDTH * 1e3:.2f} mm  "
           f"A={CROSS_SECTION_A_FRAC} B={CROSS_SECTION_B_FRAC}")
