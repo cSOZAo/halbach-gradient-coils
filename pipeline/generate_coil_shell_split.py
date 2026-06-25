@@ -20,6 +20,7 @@ Dependencies:
 import os
 import sys
 import time
+import re
 
 _PIPELINE_DIR = os.path.dirname(os.path.abspath(__file__))
 if _PIPELINE_DIR not in sys.path:
@@ -48,6 +49,7 @@ CYL_ROT_AXIS = cfg.CYL_ROT_AXIS
 CYL_ROT_ANGLE = cfg.CYL_ROT_ANGLE
 GROOVE_EXPANSION = cfg.GROOVE_EXPANSION
 LEAD_GROOVE_EXPANSION = cfg.LEAD_GROOVE_EXPANSION
+LEADS_SECOND_SUBTRACT = cfg.LEADS_SECOND_SUBTRACT
 SUBTRACT_MODE = cfg.SUBTRACT_MODE
 SHELL_OUTER_PAD = cfg.SHELL_OUTER_PAD
 OUTER_SKIN_TRIM = cfg.OUTER_SKIN_TRIM
@@ -387,8 +389,7 @@ def load_fusion_half(stl_path, fusion_dims, align_axial_center):
 def shell_output_base(subtract_path):
     """Stable output stem: strip _with_leads so names read ..._shell_g2a.stl."""
     wire_base = os.path.splitext(os.path.basename(subtract_path))[0]
-    if wire_base.endswith('_with_leads'):
-        wire_base = wire_base[:-len('_with_leads')]
+    wire_base = re.sub(r'_with_leads(?:\(\d+\))?$', '', wire_base)
     if 'wire' in wire_base:
         return wire_base.replace('wire', 'shell')
     return wire_base + '_shell'
@@ -429,11 +430,20 @@ def run_shell_split(
     align_path = os.path.normpath(
         align_wire_stl or cfg.derive_align_wire_path(subtract_path))
     stem_base, ext = os.path.splitext(subtract_path)
-    if stem_base.endswith('_with_leads'):
-        stem_base = stem_base[:-len('_with_leads')]
+    stem_base = re.sub(r'_with_leads(?:\(\d+\))?$', '', stem_base)
     leads_path = os.path.normpath(
         leads_wire_stl if leads_wire_stl is not None else stem_base + '_leads_only' + ext)
     coil_open_path = os.path.normpath(stem_base + '_coil_open' + ext)
+    if leads_wire_stl is None:
+        from output_utils import resolve_lead_stl_paths
+        wire_for_resolve = align_path
+        if not os.path.isfile(wire_for_resolve):
+            wire_for_resolve = stem_base + ext
+        _, resolved_coil_open, resolved_leads = resolve_lead_stl_paths(wire_for_resolve)
+        if os.path.isfile(resolved_leads):
+            leads_path = os.path.normpath(resolved_leads)
+        if os.path.isfile(resolved_coil_open):
+            coil_open_path = os.path.normpath(resolved_coil_open)
 
     mode = SUBTRACT_MODE if subtract_mode is None else subtract_mode
     if mode not in ('with_leads', 'with_leads_by_component', 'two_pass'):
@@ -473,6 +483,7 @@ def run_shell_split(
     print(f"  Shell STL dir       : {shell_dir}")
     print(f"  Groove expansion    : {groove_exp * 1000:.2f} mm")
     print(f"  Lead expansion      : {lead_groove_exp * 1000:.2f} mm")
+    print(f"  Leads 2nd pass      : {cfg.LEADS_SECOND_SUBTRACT and lead_groove_exp > 0}")
     print(f"  Shell outer pad     : {outer_pad * 1000:.2f} mm")
     print(f"  Outer skin trim     : {skin_trim * 1000:.2f} mm")
     print(f"  Coil 2nd pass exp   : {second_exp * 1000:.2f} mm" if second_sub else "  Coil 2nd pass       : off")
@@ -629,6 +640,15 @@ def run_shell_split(
         print(f"    Extra coil cut ({second_exp * 1000:.2f} mm)...")
         result_a = subtract_wire_from_shell(result_a, coil_wire_fat, f'A 2nd')
         result_b = subtract_wire_from_shell(result_b, coil_wire_fat, f'B 2nd')
+    if LEADS_SECOND_SUBTRACT and lead_groove_exp > 0 and os.path.isfile(leads_path):
+        print(f"    Extra lead cut ({lead_groove_exp * 1000:.2f} mm per side, "
+              f"each tube separately)...")
+        lead_mans = prepare_lead_components(
+            leads_path, lead_groove_exp, label='leads (2nd pass)')
+        result_a = subtract_wires_from_shell(
+            result_a, lead_mans, f'A leads (g_{layer}a)')
+        result_b = subtract_wires_from_shell(
+            result_b, lead_mans, f'B leads (g_{layer}b)')
     if outer_pad > 0 or skin_trim > 0:
         limiter_design = build_radius_limiter(
             fusion_dims, align_dims['axial_center'], skin_trim)
@@ -686,6 +706,7 @@ def run_shell_split(
 
 
 def main():
+    cfg.ensure_pipeline_output_dir()
     cfg.refresh_stl_paths()
     run_shell_split(cfg.SUBTRACT_WIRE_STL)
 

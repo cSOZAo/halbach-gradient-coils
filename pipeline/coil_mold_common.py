@@ -64,10 +64,10 @@ MIN_LOOP_SIGNIF = 5
 NORMAL_SHIFT = -0.005
 NORMAL_SHIFT_SMOOTH = [7, 7, 7]
 
-CONDUCTOR_WIDTH = 0.0023
+CONDUCTOR_WIDTH = 0.00225
 CROSS_SECTION_A_FRAC = 1.6
-CROSS_SECTION_B_FRAC = 1.0
-CROSS_SECTION_N = 12
+CROSS_SECTION_B_FRAC = 0.7
+CROSS_SECTION_N = 16
 
 ENABLE_FASTHENRY = True
 FASTHENRY_BIN = r'C:\Program Files (x86)\FastFieldSolvers\FastHenry2\FastHenry2.exe'
@@ -238,12 +238,17 @@ SUBTRACT_WIRE_STL = ''
 # Normal expansion along wire surface normals before boolean subtraction.
 # Widens grooves slightly and helps merge overlapping turns in dense areas.
 # Too large → grooves wider than wire; too small → thin flash in crossovers.
-GROOVE_EXPANSION = 0.00035         # [m] 0.35 mm per side — coil pass
-LEAD_GROOVE_EXPANSION = 0.00025    # [m] 0.25 mm per side — leads pass
+GROOVE_EXPANSION = 0         # [m] 0.35 mm per side — coil pass
+LEAD_GROOVE_EXPANSION = 0.00025    # [m] 0.25 mm per side — leads-only 2nd pass
 
 # Pad the shell outward before coil subtract so wire that extends past the
 # design outer radius still cuts solid material (single even-odd pass).
-SHELL_OUTER_PAD = 0.0005           # [m] 0.5 mm radial pad on outer wall
+# Must cover oval semi-axis (~3.6 mm); wire mesh peaks ~2.4 mm past Fusion outer_r.
+_WIRE_SEMI_A = CROSS_SECTION_A_FRAC * CONDUCTOR_WIDTH
+SHELL_OUTER_PAD = max(0.0005, 0.65 * _WIRE_SEMI_A)
+
+# Extra boolean on each lead tube after the main with_leads subtract (stable).
+LEADS_SECOND_SUBTRACT = True
 
 # Second full-mesh subtract (legacy) — off when using pad+restore below.
 COIL_SECOND_SUBTRACT = False
@@ -374,11 +379,14 @@ def measure_wire_dims(stl_path: str,
 
 def derive_align_wire_path(subtract_path: str) -> str:
     """Return the coil-only STL path paired with a *_with_leads* subtract STL."""
+    import re
     base, ext = os.path.splitext(subtract_path)
-    if base.endswith('_with_leads'):
-        candidate = base[:-len('_with_leads')] + ext
-        if os.path.isfile(candidate):
-            return candidate
+    coil_only = re.sub(r'_with_leads(?:\(\d+\))?$', '', base) + ext
+    if os.path.isfile(coil_only):
+        return coil_only
+    legacy = base[:-len('_with_leads')] + ext if base.endswith('_with_leads') else base
+    if os.path.isfile(legacy):
+        return legacy
     return subtract_path
 
 

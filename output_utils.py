@@ -141,9 +141,9 @@ def resolve_lead_stl_paths(wire_stl: str) -> tuple[str, str, str]:
 
     def _newest(pattern: str) -> str:
         import glob
-        matches = sorted(glob.glob(os.path.join(directory, pattern)))
+        matches = glob.glob(os.path.join(directory, pattern))
         if matches:
-            return matches[-1]
+            return max(matches, key=os.path.getmtime)
         return ''
 
     with_leads = _newest(os.path.basename(base) + '_with_leads*.stl')

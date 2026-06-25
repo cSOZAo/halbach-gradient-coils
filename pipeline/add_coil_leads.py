@@ -613,7 +613,13 @@ def _build_attached_lead(ring_indices, vertices, wire_profile, wire_tangent,
 
     for i in range(1, n_path):
         if i <= n_rigid:
-            extra_rings.append(ring_3d + (path[i] - path0))
+            # Rigid translation drifts off the cylinder surface on curved peel paths;
+            # re-project each vertex so the subtractor stays in the shell solid.
+            ring = ring_3d + (path[i] - path0)
+            ring = np.array([
+                _snap_to_shell(p, axis_hat, shell_radius) for p in ring
+            ])
+            extra_rings.append(ring)
             continue
 
         blend_i = i - 1 - n_rigid
