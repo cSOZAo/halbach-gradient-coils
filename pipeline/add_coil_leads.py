@@ -597,7 +597,7 @@ def _flood_bridge(mesh, apex_v, apex, axis_hat, circ_unit, gap_axial_length,
 def _build_attached_lead(ring_indices, vertices, wire_profile, wire_tangent,
                          toward_gap, outward, tip, exit_dir, axis_hat,
                          shell_radius, wire_run, face_in, peel_out, lead_blend,
-                         tip_fan, n_steps):
+                         tip_fan, n_steps, *, coil_junction_backset=False):
     """RMF sweep: cut-face profile blends into pyCoilGen oval along the path."""
     ring_3d = vertices[ring_indices]
     n_pts = len(ring_indices)
@@ -641,9 +641,12 @@ def _build_attached_lead(ring_indices, vertices, wire_profile, wire_tangent,
         Bn = -s_ * N[i] + c_ * B[i]
         N[i], B[i] = Nn, Bn
 
+    # Coil-direction rings on the merged mesh overlap the open coil and create
+    # non-manifold edges; keep them on standalone leads-only tubes only.
+    coil_back = LEAD_JUNCTION_COIL_BACKSET if coil_junction_backset else 0.0
     extra_rings = _junction_backset_rings(
         ring_3d, toward_gap, outward, axis_hat, shell_radius,
-        LEAD_JUNCTION_COIL_BACKSET, LEAD_JUNCTION_GAP_BACKSET, n_steps,
+        coil_back, LEAD_JUNCTION_GAP_BACKSET, n_steps,
     )
     blend_n = max(1, CS_BLEND_RINGS)
     n_rigid = min(JUNCTION_RIGID_STEPS, n_path - 1)
@@ -761,6 +764,7 @@ def _verify_result(final_mesh, n_coil_vertices, apex, axis_hat, shell_radius,
     ec = np.bincount(final_mesh.edges_unique_inverse,
                      minlength=len(final_mesh.edges_unique))
     n_boundary = int((ec == 1).sum())
+    n_nonmanifold = int((ec > 2).sum())
 
     coil_r = _shell_radius_of_points(final_mesh.vertices[:n_coil_vertices], axis_hat)
     lead_r = _shell_radius_of_points(final_mesh.vertices[n_coil_vertices:], axis_hat)
@@ -791,9 +795,10 @@ def _verify_result(final_mesh, n_coil_vertices, apex, axis_hat, shell_radius,
         print(f"  Lead {i} cross-sect  : mean radius {info['cs_mean'] * 1e3:.2f} mm, "
               f"span {info['cs_span'] * 1e3:.2f} mm")
 
-    status = 'OK - watertight' if n_boundary == 0 else f'{n_boundary} open edges'
+    status = 'OK - watertight' if n_boundary == 0 and n_nonmanifold == 0 else (
+        f'{n_boundary} open edges, {n_nonmanifold} non-manifold edges')
     print(f"  Boundary edges : {n_boundary}  ({status})")
-    return n_boundary == 0
+    return n_boundary == 0 and n_nonmanifold == 0
 
 
 # =============================================================================
@@ -921,6 +926,7 @@ def main():
             lead_blend    = LEAD_BLEND,
             tip_fan       = TIP_FAN,
             n_steps       = LEAD_STEPS,
+            coil_junction_backset=False,
         )
         lead_parts.append((extra, faces, ridx, info['n_path']))
         ring_info.append(info)

@@ -94,23 +94,23 @@ def unique_stem(
 
 def unique_run_dir(base_dir: str, stem: str) -> str:
     """
-    Return a run folder under *base_dir*.
+    Return a new run folder under *base_dir*.
 
-    Reuses empty directories. Appends ``(n)`` only when a candidate folder
-    already contains output files (so failed runs do not consume new names).
+    Each pipeline invocation gets the next free name (``stem``, ``stem(2)``, …).
+    Existing folders are never reused, even when empty, so every iteration lands
+    in its own directory.
     """
     os.makedirs(base_dir, exist_ok=True)
-    n: int | None = None
-    while True:
-        name = stem if n is None else f'{stem}({n})'
-        path = os.path.join(base_dir, name)
-        if not dir_has_outputs(path):
-            os.makedirs(path, exist_ok=True)
-            return path
-        if n is None:
-            n = 2
-        else:
-            n += 1
+    if not os.path.isdir(os.path.join(base_dir, stem)):
+        path = os.path.join(base_dir, stem)
+        os.makedirs(path, exist_ok=True)
+        return path
+    n = 2
+    while os.path.isdir(os.path.join(base_dir, f'{stem}({n})')):
+        n += 1
+    path = os.path.join(base_dir, f'{stem}({n})')
+    os.makedirs(path, exist_ok=True)
+    return path
 
 
 def write_active_stem(directory: str, stem: str) -> None:

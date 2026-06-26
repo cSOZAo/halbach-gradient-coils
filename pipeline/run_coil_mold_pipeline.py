@@ -22,14 +22,66 @@ if _PIPELINE_DIR not in sys.path:
 import coil_mold_common as cfg
 
 
-def _ensure_wire_exists() -> None:
+def _seed_wire_from_previous_run(run_dir: str) -> bool:
+    """
+    Copy coil-only wire STL (+ stem marker) from the newest sibling run folder.
+
+    Used when RUN_GRADIENT=False but a fresh run directory was allocated.
+    """
+    import glob
+    import shutil
+
+    from output_utils import ACTIVE_STEM_FILE, PIPELINE_OUTPUT_BASE
+
+    design = cfg.design_run_stem()
+    best_dir = ''
+    best_mtime = 0.0
+    for folder in glob.glob(os.path.join(PIPELINE_OUTPUT_BASE, f'{design}*')):
+        if not os.path.isdir(folder):
+            continue
+        if os.path.normpath(folder) == os.path.normpath(run_dir):
+            continue
+        for wire in glob.glob(os.path.join(folder, '*_wire_0_z.stl')):
+            base = os.path.basename(wire)
+            if any(tag in base for tag in ('_with_leads', '_coil_open', '_leads_only')):
+                continue
+            mtime = os.path.getmtime(wire)
+            if mtime > best_mtime:
+                best_mtime = mtime
+                best_dir = folder
+
+    if not best_dir:
+        return False
+
+    os.makedirs(run_dir, exist_ok=True)
+    for wire in glob.glob(os.path.join(best_dir, '*_wire_0_z.stl')):
+        base = os.path.basename(wire)
+        if any(tag in base for tag in ('_with_leads', '_coil_open', '_leads_only')):
+            continue
+        shutil.copy2(wire, os.path.join(run_dir, base))
+        stem_path = os.path.join(best_dir, ACTIVE_STEM_FILE)
+        if os.path.isfile(stem_path):
+            shutil.copy2(stem_path, os.path.join(run_dir, ACTIVE_STEM_FILE))
+        metrics = glob.glob(os.path.join(best_dir, '*_metrics.txt'))
+        for m in metrics:
+            shutil.copy2(m, os.path.join(run_dir, os.path.basename(m)))
+        print(f"  Seeded wire from: {best_dir}")
+        cfg.sync_project_stem_from_disk()
+        return True
+    return False
+
+
+def _ensure_wire_exists(run_dir: str) -> None:
     path = cfg.wire_stl_path(with_leads=False)
     if not os.path.isfile(path):
-        print(f"Wire STL missing: {path}")
-        if not cfg.RUN_GRADIENT:
-            print("Set RUN_GRADIENT = True in coil_mold_common.py, or run "
-                  "gradiente_belen_santi_main.py first.")
-            sys.exit(1)
+        if not cfg.RUN_GRADIENT and _seed_wire_from_previous_run(run_dir):
+            path = cfg.wire_stl_path(with_leads=False)
+        if not os.path.isfile(path):
+            print(f"Wire STL missing: {path}")
+            if not cfg.RUN_GRADIENT:
+                print("Set RUN_GRADIENT = True in coil_mold_common.py, or run "
+                      "gradiente_belen_santi_main.py first.")
+                sys.exit(1)
 
 
 def _run_gradient_script(run_dir: str) -> None:
@@ -105,7 +157,7 @@ def main() -> None:
         _run_gradient_script(run_dir)
         print()
     else:
-        _ensure_wire_exists()
+        _ensure_wire_exists(run_dir)
 
     if cfg.RUN_LEADS:
         print("[2/3] Adding lead wires (add_coil_leads)...")

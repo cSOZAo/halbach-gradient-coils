@@ -253,7 +253,12 @@ def prepare_lead_components(stl_path, expansion, label='leads'):
             print(f"    WARNING: component {i + 1} not watertight — attempting repair")
             comp.fill_holes()
             comp.fix_normals()
+        if not comp.is_watertight:
+            print(f"    SKIP component {i + 1} (still open after repair)")
+            continue
         mans.append(manifold_from_trimesh(comp))
+    if not mans:
+        print("  WARNING: no watertight lead components — skipping lead subtractors")
     return mans
 
 
@@ -691,9 +696,13 @@ def run_shell_split(
         print(f"      Vertices     : {len(result_tm.vertices)}")
         print(f"      Faces        : {len(result_tm.faces)}")
         print(f"      Watertight   : {result_tm.is_watertight}")
-        print(f"      Bounding box : [{bb[0][0]:.2f}, {bb[0][1]:.2f}, "
-              f"{bb[0][2]:.2f}] --> [{bb[1][0]:.2f}, {bb[1][1]:.2f}, "
-              f"{bb[1][2]:.2f}] ({unit})")
+        if bb is not None and len(result_tm.vertices) > 0:
+            print(f"      Bounding box : [{bb[0][0]:.2f}, {bb[0][1]:.2f}, "
+                  f"{bb[0][2]:.2f}] --> [{bb[1][0]:.2f}, {bb[1][1]:.2f}, "
+                  f"{bb[1][2]:.2f}] ({unit})")
+        else:
+            print("      ERROR: empty mesh — boolean subtract failed")
+            sys.exit(1)
         print(f"      File         : {out_path}")
         print(f"      Size         : {os.path.getsize(out_path) / 1024 / 1024:.1f} MB")
         print()
