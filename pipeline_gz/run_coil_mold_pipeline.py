@@ -1,10 +1,12 @@
 """
-End-to-end negative-mold pipeline for belen_santi gradient coils.
+End-to-end negative-mold pipeline for belen_santi **Gz** gradient coils
+(Fusion g_3a / g_3b shell halves).
 
 Runs (optionally) pyCoilGen, adds lead wires, and carves the Fusion 360
 shell halves — all from the shared settings in ``coil_mold_common.py``.
 
 Usage:
+    cd pipeline_gz
     python run_coil_mold_pipeline.py
 
 Edit ``coil_mold_common.py`` to change geometry, paths, and which steps run.

@@ -44,6 +44,17 @@ def gradient_project_stem(axis: str, tikhonov: float, num_levels: int) -> str:
     return f'Gradient_G{axis}_tk{int(tikhonov)}_lvl{num_levels}'
 
 
+def internal_field_axis(gradient_axis: str) -> str:
+    """
+    pyCoilGen ``field_shape_function`` for a physical gradient axis.
+
+    Cylinder mesh rotation permutes axes: physical Gx/Gy/Gz map to internal
+    y / z / x respectively (see gradiente_belen_santi_main INTERNAL_AXIS).
+    Wire STLs are named ``…_wire_0_{internal}.stl``.
+    """
+    return {'x': 'y', 'y': 'z', 'z': 'x'}[gradient_axis.lower()]
+
+
 def standalone_design_dir(axis: str, tikhonov: float, num_levels: int) -> str:
     """Fixed working directory for a standalone design (all three scripts)."""
     return os.path.join(
@@ -70,11 +81,16 @@ def unique_path(path: str) -> str:
 def unique_stem(
     directory: str,
     stem: str,
-    marker_templates: tuple[str, ...] = (
-        '{stem}_wire_0_z.stl',
-        '{stem}_metrics.txt',
-    ),
+    marker_templates: tuple[str, ...] | None = None,
+    *,
+    gradient_axis: str = 'y',
 ) -> str:
+    if marker_templates is None:
+        field_axis = internal_field_axis(gradient_axis)
+        marker_templates = (
+            f'{{stem}}_wire_0_{field_axis}.stl',
+            '{stem}_metrics.txt',
+        )
     """Return *stem* or ``stem(n)`` when marker files already exist in *directory*."""
     os.makedirs(directory, exist_ok=True)
 
@@ -127,8 +143,16 @@ def read_active_stem(directory: str, default: str = '') -> str:
     return default
 
 
-def wire_stl_name(stem: str) -> str:
-    return f'{stem}_wire_0_z.stl'
+def wire_stl_name(stem: str, gradient_axis: str = 'y') -> str:
+    field_axis = internal_field_axis(gradient_axis)
+    return f'{stem}_wire_0_{field_axis}.stl'
+
+
+def _is_derived_wire_stl(path: str) -> bool:
+    base = os.path.basename(path)
+    return any(
+        tag in base for tag in ('_with_leads', '_coil_open', '_leads_only')
+    )
 
 
 def resolve_lead_stl_paths(wire_stl: str) -> tuple[str, str, str]:
@@ -170,19 +194,31 @@ def resolve_wire_stl_path(
 
     default_stem = gradient_project_stem(axis, tikhonov, num_levels)
     stem = read_active_stem(output_dir, default_stem)
+    field_axis = internal_field_axis(axis)
     for candidate_stem in (stem, default_stem):
-        path = os.path.join(output_dir, wire_stl_name(candidate_stem))
+        path = os.path.join(output_dir, wire_stl_name(candidate_stem, axis))
         if os.path.isfile(path):
             return path
 
-    pattern = os.path.join(
-        output_dir,
-        f'Gradient_G{axis}_tk{int(tikhonov)}_lvl{num_levels}*_wire_0_z.stl',
+    patterns = (
+        os.path.join(
+            output_dir,
+            f'Gradient_G{axis}_tk{int(tikhonov)}_lvl{num_levels}'
+            f'*_wire_0_{field_axis}.stl',
+        ),
+        os.path.join(
+            output_dir,
+            f'Gradient_G{axis}_tk{int(tikhonov)}_lvl{num_levels}*_wire_0_?.stl',
+        ),
     )
-    matches = sorted(glob.glob(pattern))
+    matches: list[str] = []
+    for pattern in patterns:
+        for path in glob.glob(pattern):
+            if not _is_derived_wire_stl(path):
+                matches.append(path)
     if matches:
-        return matches[-1]
-    return os.path.join(output_dir, wire_stl_name(stem))
+        return max(matches, key=os.path.getmtime)
+    return os.path.join(output_dir, wire_stl_name(stem, axis))
 
 
 def unique_lead_output_paths(input_stl: str) -> tuple[str, str, str]:

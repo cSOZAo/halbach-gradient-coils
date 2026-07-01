@@ -1,12 +1,9 @@
 """
-Shared parameters and geometry helpers for the coil negative-mold workflow:
+Shared parameters for the **Gz** negative-mold workflow (layer g_3a / g_3b).
 
-    gradiente_belen_santi_main.py  ->  wire STL
-    add_coil_leads.py              ->  wire STL with leads
-    generate_coil_shell_split.py   ->  printable shell halves
-
-Edit the USER PARAMETERS block below once; import this module from the
-individual scripts or run ``run_coil_mold_pipeline.py``.
+Copy of ``pipeline/`` tuned for a physical Z gradient on the innermost Fusion
+cylinder pair.  Edit the USER PARAMETERS block below once; import this module
+from the individual scripts or run ``run_coil_mold_pipeline.py``.
 """
 
 from __future__ import annotations
@@ -42,8 +39,8 @@ PYCOILGEN_ROOT = os.path.dirname(PROJECT_ROOT)
 BASE_DIR = PROJECT_ROOT
 
 # ---- Gradient design (gradiente_belen_santi_main.py) ------------------------
-GRADIENT_AXIS = 'y'
-TIKHONOV_FACTOR = 2500
+GRADIENT_AXIS = 'z'
+TIKHONOV_FACTOR = 10000
 NUM_LEVELS = 26
 
 TARGET_RX = 0.125
@@ -52,8 +49,11 @@ TARGET_RZ = 0.125
 RESOL_RADIAL = 8
 RESOL_ANGULAR = 28
 
+# CoilGen cylinder sized for Fusion g_3a/g_3b (inner 135.2 mm, outer 143.0 mm).
+# Same axial extent and ROI as the Gy / g_2 pipeline; radius tracks ~1.4 mm
+# inside the Fusion outer wall (same margin as Gy on g_2).
 CYL_HEIGHT = 0.43               # [m]
-CYL_RADIUS = 0.150              # [m]
+CYL_RADIUS = 0.1416             # [m] 143.0 mm outer − 1.4 mm
 CYL_N_CIRC = 200
 CYL_N_LONG = 10
 CYL_ROT_AXIS = (0, 1, 0)
@@ -76,7 +76,7 @@ SPECIFIC_CONDUCTIVITY_CONDUCTOR = 1.8e-8
 SMOOTH_FACTOR = 3
 
 # ---- Result paths -----------------------------------------------------------
-# Pipeline outputs: resultados/pipeline/Gy_tk2500_lvl26/ (or …(2) on re-run).
+# Pipeline outputs: resultados/pipeline/Gz_tk25000_lvl26/ (or …(2) on re-run).
 # Set by init_pipeline_run() before the first pipeline step.
 RESULTS_DIR_ENV = 'COIL_MOLD_RESULTS_DIR'
 RESULTS_DIR = ''
@@ -221,7 +221,7 @@ FUSION_SHELL_REFERENCE_MM = {
     2: {'z_min': 0.0, 'z_max': 446.5, 'length': 446.5, 'inner_r': 143.8, 'outer_r': 151.4},
     3: {'z_min': 0.0, 'z_max': 446.5, 'length': 446.5, 'inner_r': 135.2, 'outer_r': 143.0},
 }
-GRADIENT_LAYER = 2
+GRADIENT_LAYER = 3
 
 # ---- Shell subtraction ------------------------------------------------------
 # Align with closed coil-only STL; subtract using the open cable + leads.
