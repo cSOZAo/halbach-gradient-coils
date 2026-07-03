@@ -155,6 +155,20 @@ def _project_exit_tangent(exit_dir, at_point, axis_hat):
     return _unit(tangent, axis_hat)
 
 
+def _route_frame(center, ref_center, exit_dir, axis_hat, wire_tangent):
+    """Axis-independent shell routing frame for a lead cut face."""
+    route_dir = _project_exit_tangent(exit_dir, center, axis_hat)
+    side_dir = _tangent_offset(np.asarray(center) - np.asarray(ref_center),
+                               center, axis_hat)
+    # Tip separation should be lateral to the route, not another axial offset.
+    side_dir = side_dir - np.dot(side_dir, route_dir) * route_dir
+    if np.linalg.norm(side_dir) < 1e-9:
+        side_dir = _tangent_offset(wire_tangent, center, axis_hat)
+        side_dir = side_dir - np.dot(side_dir, route_dir) * route_dir
+    side_dir = _unit(side_dir, wire_tangent)
+    return route_dir, side_dir
+
+
 def _estimate_shell_radius(vertices, apex, axis_hat, sample_radius=0.015):
     """Median centre-line radius from vertices near the apex."""
     near = vertices[np.linalg.norm(vertices - apex, axis=1) < sample_radius]
@@ -396,23 +410,42 @@ def _profile_ring_2d_in_frame(wire_profile, ring_3d, normal, binormal, n_pts):
     return oval_2d, float(radii.mean()), float(radii.ptp()), cut_2d
 
 
-def _lead_centerline(p0, tangent, tip, exit_tangent, axis_hat, shell_radius,
-                     blend, n_steps):
-    """C1-smooth shell Bezier using local start and exit tangents."""
+def _lead_centerline(p0, tangent, route_dir, tip, exit_tangent, axis_hat,
+                     shell_radius, blend, n_steps):
+    """Two-stage shell path: toward-gap fillet, then route-aligned exit run."""
     start_t = _unit(tangent)
+    route_t = _unit(route_dir)
     end_t = _unit(exit_tangent)
     p0 = _snap_to_shell(np.asarray(p0, dtype=float), axis_hat, shell_radius)
     tip = _snap_to_shell(np.asarray(tip, dtype=float), axis_hat, shell_radius)
 
     chord = float(np.linalg.norm(tip - p0))
-    if chord > 1e-12:
-        handle = min(float(blend), 0.45 * chord)
-        handle = max(handle, min(1.5 * _P.conductor_width, 0.35 * chord))
-    else:
-        handle = float(blend)
-    p1 = _snap_to_shell(p0 + start_t * handle, axis_hat, shell_radius)
-    p2 = _snap_to_shell(tip - end_t * handle, axis_hat, shell_radius)
-    return _shell_bezier(p0, p1, p2, tip, axis_hat, shell_radius, n_steps)
+    if chord < 1e-12:
+        return np.tile(p0, (max(2, n_steps), 1))
+
+    fillet_len = min(float(blend), 0.30 * chord, 0.006)
+    fillet_len = max(fillet_len, min(1.5 * _P.conductor_width, 0.20 * chord))
+    route_forward = max(float(np.dot(tip - p0, route_t)), 0.0)
+    join_route = min(max(0.35 * route_forward, fillet_len), 0.65 * chord)
+    join = _snap_to_shell(p0 + start_t * fillet_len + route_t * join_route,
+                          axis_hat, shell_radius)
+
+    h1 = min(0.60 * fillet_len, 0.35 * np.linalg.norm(join - p0))
+    c1 = _snap_to_shell(p0 + start_t * h1, axis_hat, shell_radius)
+    c2 = _snap_to_shell(join - route_t * h1, axis_hat, shell_radius)
+    n_fillet = max(8, min(n_steps // 3, 32))
+    fillet = _shell_bezier(p0, c1, c2, join, axis_hat, shell_radius, n_fillet)
+
+    remaining = float(np.linalg.norm(tip - join))
+    if remaining < 1e-6:
+        return fillet
+    h2 = min(float(blend), 0.45 * remaining)
+    h2 = max(h2, min(1.5 * _P.conductor_width, 0.30 * remaining))
+    c3 = _snap_to_shell(join + route_t * h2, axis_hat, shell_radius)
+    c4 = _snap_to_shell(tip - end_t * h2, axis_hat, shell_radius)
+    n_run = max(8, n_steps - len(fillet) + 1)
+    run = _shell_bezier(join, c3, c4, tip, axis_hat, shell_radius, n_run)
+    return np.vstack([fillet, run[1:]])
 
 
 def _common_tip(exit_axial, anchor, axis_hat, shell_radius, fan_offset):
@@ -513,9 +546,10 @@ def _flood_bridge(mesh, apex_v, apex, axis_hat, circ_unit, gap_axial_length,
     return mask
 
 
-def _build_attached_lead(ring_indices, vertices, wire_profile, normal, tangent,
-                         binormal, tip, exit_tangent, axis_hat, shell_radius,
-                         lead_blend, n_steps):
+def _build_attached_lead(ring_indices, vertices, wire_profile, normal,
+                         junction_tangent, binormal, route_dir, tip,
+                         exit_tangent, axis_hat, shell_radius, lead_blend,
+                         n_steps):
     """RMF sweep: cut-face profile blends into pyCoilGen oval along the path."""
     ring_3d = vertices[ring_indices]
     n_pts = len(ring_indices)
@@ -527,16 +561,19 @@ def _build_attached_lead(ring_indices, vertices, wire_profile, normal, tangent,
     )
 
     path = _lead_centerline(
-        p0=center, tangent=tangent, tip=tip, exit_tangent=exit_tangent,
+        p0=center, tangent=junction_tangent, route_dir=route_dir, tip=tip,
+        exit_tangent=exit_tangent,
         axis_hat=axis_hat, shell_radius=shell_radius, blend=lead_blend,
         n_steps=n_steps,
     )
     path[-1] = np.asarray(tip, dtype=float)
     n_path = len(path)
     departure = path[min(n_path - 1, max(1, n_path // 2))]
+    mid_i = min(max(1, n_path // 2), n_path - 2)
+    mid_tangent = _unit(path[mid_i + 1] - path[mid_i], route_dir)
 
     _, N, B = _rotation_minimizing_frames(path)
-    first_tangent = _unit(path[1] - path[0], tangent)
+    first_tangent = _unit(path[1] - path[0], junction_tangent)
     target_normal = normal - np.dot(normal, first_tangent) * first_tangent
     target_normal = _unit(target_normal, normal)
     cos_a = float(np.dot(N[0], target_normal))
@@ -604,12 +641,15 @@ def _build_attached_lead(ring_indices, vertices, wire_profile, normal, tangent,
         'n_path': n_ring + 1,
         'approach_run': 0.0,
         'normal': np.asarray(normal, dtype=float),
-        'tangent': np.asarray(tangent, dtype=float),
+        'junction_tangent': np.asarray(junction_tangent, dtype=float),
         'binormal': np.asarray(binormal, dtype=float),
+        'route_dir': np.asarray(route_dir, dtype=float),
         'first_tangent': first_tangent,
-        'first_tangent_dot': float(np.dot(first_tangent, tangent)),
+        'mid_tangent': mid_tangent,
+        'first_tangent_dot': float(np.dot(first_tangent, junction_tangent)),
+        'route_tangent_dot': float(np.dot(mid_tangent, route_dir)),
         'section_normal_dot': section_dot_normal,
-        'tip_forward': float(np.dot(np.asarray(path[-1]) - center, tangent)),
+        'tip_forward': float(np.dot(np.asarray(path[-1]) - center, route_dir)),
     }
 
 
@@ -696,16 +736,18 @@ def _verify_result(final_mesh, n_coil_vertices, apex, axis_hat, shell_radius,
     for i, info in enumerate(ring_info):
         print(f"  Lead {i} cross-sect  : mean radius {info['cs_mean'] * 1e3:.2f} mm, "
               f"span {info['cs_span'] * 1e3:.2f} mm")
-        print(f"  Lead {i} frame check : tangent {info['first_tangent_dot']:.3f}, "
+        print(f"  Lead {i} frame check : toward-gap {info['first_tangent_dot']:.3f}, "
+              f"route {info['route_tangent_dot']:.3f}, "
               f"normal {info['section_normal_dot']:.3f}, "
-              f"forward {info['tip_forward'] * 1e3:.1f} mm")
+              f"route-forward {info['tip_forward'] * 1e3:.1f} mm")
 
     cut_vec = c1 - c0
     tip_vec = ring_info[1]['tip'] - ring_info[0]['tip']
     denom = np.linalg.norm(cut_vec) * np.linalg.norm(tip_vec)
     tip_order_dot = float(np.dot(cut_vec, tip_vec) / denom) if denom > 1e-12 else 0.0
     frame_ok = all(
-        info['first_tangent_dot'] > 0.90
+        info['first_tangent_dot'] > 0.75
+        and info['route_tangent_dot'] > 0.80
         and info['section_normal_dot'] > 0.90
         and info['tip_forward'] >= -1e-4
         for info in ring_info
@@ -878,15 +920,20 @@ def run_leads(
             center, ref_center, open_mesh.vertices, axis_hat,
             _P.tangent_radius, fallback_tangent=fallback,
         )
+        toward_gap = _tangent_offset(ref_center - center, center, axis_hat)
+        junction_tangent = _unit(toward_gap, -tangent)
+        if np.dot(junction_tangent, -tangent) < 0.0:
+            junction_tangent = -junction_tangent
+        route_dir, side_dir = _route_frame(center, ref_center, exit_dir,
+                                           axis_hat, tangent)
         fan_offset = np.zeros(3)
         if _P.tip_fan > 1e-9:
-            fan_offset = tangent * (_P.tip_fan / 2.0)
+            fan_offset = side_dir * (_P.tip_fan / 2.0)
         tip = _common_tip(exit_axial, tip_anchor, axis_hat, shell_radius, fan_offset)
-        min_forward = min(max(0.25 * _P.tip_fan, _P.conductor_width),
-                          0.45 * _P.cut_loop_length)
-        forward = float(np.dot(tip - center, tangent))
+        min_forward = max(0.35 * _P.lead_length, 2.0 * _P.conductor_width)
+        forward = float(np.dot(tip - center, route_dir))
         if forward < min_forward:
-            tip = _snap_to_shell(tip + tangent * (min_forward - forward),
+            tip = _snap_to_shell(tip + route_dir * (min_forward - forward),
                                  axis_hat, shell_radius)
         exit_tangent = _project_exit_tangent(exit_dir, tip, axis_hat)
         extra, faces, ridx, info = _build_attached_lead(
@@ -894,8 +941,9 @@ def run_leads(
             vertices=open_mesh.vertices,
             wire_profile=wire_profile,
             normal=normal,
-            tangent=tangent,
+            junction_tangent=junction_tangent,
             binormal=binormal,
+            route_dir=route_dir,
             tip=tip,
             exit_tangent=exit_tangent,
             axis_hat=axis_hat,

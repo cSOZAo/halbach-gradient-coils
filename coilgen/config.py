@@ -138,14 +138,14 @@ class LeadsConfig:
     wire_isolate_half: float = 0.008           # [m]
     tangent_radius: float = 0.006              # [m]
     # Legacy S-curve params (no longer wired into the centreline; kept for GUI
-    # / back-compat). The lead now uses a single smooth Bezier from cut face to
-    # bore, sized by lead_length / lead_blend.
+    # / back-compat). The lead now uses a toward-gap elbow plus a route-aligned
+    # exit run, sized by lead_length / lead_blend.
     wire_tangent_run: float = 0.020            # [m] legacy
     face_toward_gap: float = 0.003             # [m] legacy
     peel_out: float = 0.006                    # [m] legacy
     lead_junction_coil_backset: float = 0.0    # [m] legacy (was 0.003; lip removed)
     lead_junction_gap_backset: float = 0.0     # [m] legacy (was 0.002; lip removed)
-    lead_length: float = 0.02                  # [m]
+    lead_length: float = 0.035                 # [m] longer axial run keeps fan from curling sideways
     lead_blend: float = 0.015                  # [m] cubic Bezier handle floor
     tip_fan: float = 0.015                     # [m]
     lead_steps: int = 128
