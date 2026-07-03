@@ -10,11 +10,15 @@ an inlet and an outlet. This module:
      a chosen angular sector of the cylinder).
   2. Estimates the local wire tangent with a small PCA neighbourhood.
   3. Removes a segment of length ``cut_loop_length`` along the loop at that
-     station. Start separation equals this cut -- one parameter, no stubs.
-  4. Each lead path: short run *toward* the gap (starts face each other), then
-     *peels outward* along the loop, then a shell Bezier into the bore. Tips
-     fan apart by ``tip_fan`` on the shared exit plane. Both leads terminate on
-     the same exit plane so they are equal length.
+     station, leaving two cut faces on opposite sides of the gap.
+  4. Each lead is a single C1-smooth cubic Bezier from its cut face to the
+     shared axial exit plane. The initial tangent is the wire's running
+     direction *away from the gap* (so the lead emerges tangentially from the
+     main wire), and the final tangent is the bore axis (so the lead exits
+     axially). Tips fan apart by ``tip_fan`` on the shared exit plane. Both
+     leads terminate on the same exit plane so they are equal length. The
+     cross-section blends from the real cut-face shape into the pyCoilGen oval
+     over ``cs_blend_rings`` on a twist-free RMF basis.
 
 Axis awareness (fix for the non-Gy bug)
 ---------------------------------------
@@ -98,6 +102,57 @@ def _tangent_offset(vec, at_point, axis_hat):
     r_hat = _radial_hat(at_point, axis_hat)
     v = np.asarray(vec, dtype=float)
     return v - np.dot(v, r_hat) * r_hat
+
+
+def _unit(vec, fallback=None):
+    """Return a normalized vector, or a normalized fallback if degenerate."""
+    v = np.asarray(vec, dtype=float)
+    n = np.linalg.norm(v)
+    if n > 1e-12:
+        return v / n
+    if fallback is None:
+        raise ValueError("Cannot normalize a degenerate vector without fallback.")
+    fb = np.asarray(fallback, dtype=float)
+    fn = np.linalg.norm(fb)
+    if fn < 1e-12:
+        raise ValueError("Fallback vector is also degenerate.")
+    return fb / fn
+
+
+def _surface_frame(center, ref_center, vertices, axis_hat, tangent_radius,
+                   fallback_tangent=None):
+    """
+    Local lead frame at a cut face.
+
+    n: surface normal (radial direction)
+    t: wire tangent projected to the shell and signed away from the cut gap
+    b: RMF-compatible binormal (t x n)
+    """
+    n_hat = _radial_hat(center, axis_hat)
+    raw_t = _pca_tangent(vertices, center, tangent_radius)
+    t_hat = _tangent_offset(raw_t, center, axis_hat)
+
+    if np.linalg.norm(t_hat) < 1e-12 and fallback_tangent is not None:
+        t_hat = _tangent_offset(fallback_tangent, center, axis_hat)
+    t_hat = _unit(t_hat, fallback_tangent if fallback_tangent is not None else axis_hat)
+
+    away = _tangent_offset(np.asarray(center) - np.asarray(ref_center), center, axis_hat)
+    if np.linalg.norm(away) > 1e-9:
+        if np.dot(t_hat, away) < 0.0:
+            t_hat = -t_hat
+    elif fallback_tangent is not None and np.dot(t_hat, fallback_tangent) < 0.0:
+        t_hat = -t_hat
+
+    b_hat = _unit(np.cross(t_hat, n_hat), np.cross(axis_hat, n_hat))
+    return n_hat, t_hat, b_hat
+
+
+def _project_exit_tangent(exit_dir, at_point, axis_hat):
+    """Exit direction projected into the local shell tangent plane."""
+    tangent = _tangent_offset(exit_dir, at_point, axis_hat)
+    if np.linalg.norm(tangent) < 1e-12:
+        tangent = _tangent_offset(axis_hat, at_point, axis_hat)
+    return _unit(tangent, axis_hat)
 
 
 def _estimate_shell_radius(vertices, apex, axis_hat, sample_radius=0.015):
@@ -327,97 +382,37 @@ def _profile_ring_2d(wire_profile, ring_3d, n_pts):
     return oval_2d, cs_mean, cs_span, cut_2d
 
 
-def _junction_backset_rings(ring_3d, toward_gap, outward, axis_hat, shell_radius,
-                            coil_backset, gap_backset, n_steps):
-    """Extra cross-section rings at the weld to eat corner flash on the mold."""
-    rings = []
-    out = np.asarray(outward, dtype=float)
-    out /= np.linalg.norm(out)
-    tg = np.asarray(toward_gap, dtype=float)
-    tg /= np.linalg.norm(tg)
-
-    if gap_backset > 1e-6:
-        n_g = max(2, n_steps // 32)
-        for t in np.linspace(gap_backset / n_g, gap_backset, n_g):
-            ring = ring_3d + t * tg
-            rings.append(np.array([
-                _snap_to_shell(p, axis_hat, shell_radius) for p in ring
-            ]))
-
-    if coil_backset > 1e-6:
-        n_b = max(2, n_steps // 32)
-        for t in np.linspace(coil_backset / n_b, coil_backset, n_b):
-            ring = ring_3d - t * out
-            rings.append(np.array([
-                _snap_to_shell(p, axis_hat, shell_radius) for p in ring
-            ]))
-
-    return rings
+def _profile_ring_2d_in_frame(wire_profile, ring_3d, normal, binormal, n_pts):
+    """Cut-face and oval profiles expressed in the local surface frame."""
+    center = np.asarray(ring_3d, dtype=float).mean(axis=0)
+    cut_2d = np.column_stack([
+        (ring_3d - center) @ normal,
+        (ring_3d - center) @ binormal,
+    ])
+    oval_2d = _resample_closed_2d(wire_profile['template_2d'], n_pts)
+    if len(cut_2d) != n_pts:
+        cut_2d = _resample_closed_2d(cut_2d, n_pts)
+    radii = np.linalg.norm(oval_2d, axis=1)
+    return oval_2d, float(radii.mean()), float(radii.ptp()), cut_2d
 
 
-def _lead_centerline(p0, wire_tangent, toward_gap, outward, tip, exit_dir,
-                     axis_hat, shell_radius, wire_run, face_in, peel_out,
-                     blend, tip_fan, n_steps):
-    """Centre-line: coil tangent -> face inward -> peel outward -> Bezier to tip."""
-    wt = wire_tangent / np.linalg.norm(wire_tangent)
-    tg = toward_gap / np.linalg.norm(toward_gap)
-    out = outward / np.linalg.norm(outward)
-    exit_d = exit_dir / np.linalg.norm(exit_dir)
-    fan_scale = min(1.0, float(tip_fan) / 0.005) if tip_fan > 1e-9 else 0.0
+def _lead_centerline(p0, tangent, tip, exit_tangent, axis_hat, shell_radius,
+                     blend, n_steps):
+    """C1-smooth shell Bezier using local start and exit tangents."""
+    start_t = _unit(tangent)
+    end_t = _unit(exit_tangent)
+    p0 = _snap_to_shell(np.asarray(p0, dtype=float), axis_hat, shell_radius)
+    tip = _snap_to_shell(np.asarray(tip, dtype=float), axis_hat, shell_radius)
 
-    path_parts = []
-    p_start = np.asarray(p0, dtype=float)
-
-    if wire_run > 1e-6:
-        surf_t = _tangent_offset(wt, p_start, axis_hat)
-        sn = np.linalg.norm(surf_t)
-        if sn > 1e-12:
-            surf_t /= sn
-            n_w = max(3, n_steps // 24)
-            wrun = p_start + np.outer(np.linspace(0.0, 1.0, n_w), surf_t * wire_run)
-            for i in range(n_w):
-                wrun[i] = _snap_to_shell(wrun[i], axis_hat, shell_radius)
-            path_parts.append(wrun)
-            p_start = wrun[-1]
-
-    if face_in > 1e-6:
-        n_in = max(3, n_steps // 20)
-        inward = p_start + np.outer(np.linspace(0.0, 1.0, n_in), tg * face_in)
-        for i in range(n_in):
-            inward[i] = _snap_to_shell(inward[i], axis_hat, shell_radius)
-        path_parts.append(inward)
-        p_start = inward[-1]
-
-    n_out = max(5, n_steps // 8)
-    peel = p_start + np.outer(np.linspace(0.0, 1.0, n_out), out * peel_out)
-    for i in range(n_out):
-        peel[i] = _snap_to_shell(peel[i], axis_hat, shell_radius)
-    path_parts.append(peel)
-
-    ps = peel[-1]
-    h = blend
-    lat = 0.45 * fan_scale
-    ax_w = 0.15 + 0.55 * (1.0 - fan_scale)
-    p1 = _snap_to_shell(ps + out * h * lat + exit_d * h * ax_w * 0.35,
-                        axis_hat, shell_radius)
-    p2 = _snap_to_shell(np.asarray(tip, dtype=float) - exit_d * h * ax_w * 0.55,
-                        axis_hat, shell_radius)
-    p3 = _snap_to_shell(tip, axis_hat, shell_radius)
-
-    n_curve = max(8, n_steps - sum(len(p) for p in path_parts) + 1)
-    curve = _shell_bezier(ps, p1, p2, p3, axis_hat, shell_radius, n_curve)
-    path_parts.append(curve[1:])
-    out_path = path_parts[0]
-    for part in path_parts[1:]:
-        out_path = np.vstack([out_path, part])
-    return out_path
-
-
-def _tip_fan_direction(loop_dir):
-    """Tip fan direction along the loop, opposite to peel *loop_dir*."""
-    ld = np.asarray(loop_dir, dtype=float)
-    ld /= np.linalg.norm(ld)
-    return -ld
+    chord = float(np.linalg.norm(tip - p0))
+    if chord > 1e-12:
+        handle = min(float(blend), 0.45 * chord)
+        handle = max(handle, min(1.5 * _P.conductor_width, 0.35 * chord))
+    else:
+        handle = float(blend)
+    p1 = _snap_to_shell(p0 + start_t * handle, axis_hat, shell_radius)
+    p2 = _snap_to_shell(tip - end_t * handle, axis_hat, shell_radius)
+    return _shell_bezier(p0, p1, p2, tip, axis_hat, shell_radius, n_steps)
 
 
 def _common_tip(exit_axial, anchor, axis_hat, shell_radius, fan_offset):
@@ -518,48 +513,43 @@ def _flood_bridge(mesh, apex_v, apex, axis_hat, circ_unit, gap_axial_length,
     return mask
 
 
-def _build_attached_lead(ring_indices, vertices, wire_profile, wire_tangent,
-                         toward_gap, outward, tip, exit_dir, axis_hat,
-                         shell_radius, wire_run, face_in, peel_out, lead_blend,
-                         tip_fan, n_steps, *, coil_junction_backset=False):
+def _build_attached_lead(ring_indices, vertices, wire_profile, normal, tangent,
+                         binormal, tip, exit_tangent, axis_hat, shell_radius,
+                         lead_blend, n_steps):
     """RMF sweep: cut-face profile blends into pyCoilGen oval along the path."""
     ring_3d = vertices[ring_indices]
     n_pts = len(ring_indices)
     center, _, ax1, ax2 = _loop_plane(ring_3d)
     ring_indices, ring_3d = _rotate_ordered_ring(ring_indices, ring_3d, center, ax1, ax2)
     center = _snap_to_shell(center, axis_hat, shell_radius)
-    oval_2d, cs_mean, cs_span, cut_2d = _profile_ring_2d(wire_profile, ring_3d, n_pts)
-    path0 = center.copy()
+    oval_2d, cs_mean, cs_span, cut_2d = _profile_ring_2d_in_frame(
+        wire_profile, ring_3d, normal, binormal, n_pts,
+    )
 
     path = _lead_centerline(
-        p0=center, wire_tangent=wire_tangent, toward_gap=toward_gap,
-        outward=outward, tip=tip, exit_dir=exit_dir, axis_hat=axis_hat,
-        shell_radius=shell_radius, wire_run=wire_run, face_in=face_in,
-        peel_out=peel_out, blend=lead_blend, tip_fan=tip_fan, n_steps=n_steps,
+        p0=center, tangent=tangent, tip=tip, exit_tangent=exit_tangent,
+        axis_hat=axis_hat, shell_radius=shell_radius, blend=lead_blend,
+        n_steps=n_steps,
     )
     path[-1] = np.asarray(tip, dtype=float)
     n_path = len(path)
-    n_w = max(3, n_steps // 24) if wire_run > 1e-6 else 0
-    n_in = max(3, n_steps // 20) if face_in > 1e-6 else 0
-    n_peel = max(5, n_steps // 8)
-    peel_end = min(n_w + n_in + n_peel - 1, n_path - 1)
-    departure = path[peel_end]
+    departure = path[min(n_path - 1, max(1, n_path // 2))]
 
     _, N, B = _rotation_minimizing_frames(path)
-    cos_a = float(np.dot(N[0], ax1))
-    sin_a = float(np.dot(B[0], ax1))
+    first_tangent = _unit(path[1] - path[0], tangent)
+    target_normal = normal - np.dot(normal, first_tangent) * first_tangent
+    target_normal = _unit(target_normal, normal)
+    cos_a = float(np.dot(N[0], target_normal))
+    sin_a = float(np.dot(B[0], target_normal))
     angle = np.arctan2(sin_a, cos_a)
     c_, s_ = np.cos(angle), np.sin(angle)
     for i in range(n_path):
         Nn = c_ * N[i] + s_ * B[i]
         Bn = -s_ * N[i] + c_ * B[i]
         N[i], B[i] = Nn, Bn
+    section_dot_normal = abs(float(np.dot(N[0], normal)))
 
-    coil_back = _P.lead_junction_coil_backset if coil_junction_backset else 0.0
-    extra_rings = _junction_backset_rings(
-        ring_3d, toward_gap, outward, axis_hat, shell_radius,
-        coil_back, _P.lead_junction_gap_backset, n_steps,
-    )
+    extra_rings = []
     blend_n = max(1, _P.cs_blend_rings)
     n_rigid = min(_P.junction_rigid_steps, n_path - 1)
 
@@ -613,6 +603,13 @@ def _build_attached_lead(ring_indices, vertices, wire_profile, wire_tangent,
         'cs_span': cs_span,
         'n_path': n_ring + 1,
         'approach_run': 0.0,
+        'normal': np.asarray(normal, dtype=float),
+        'tangent': np.asarray(tangent, dtype=float),
+        'binormal': np.asarray(binormal, dtype=float),
+        'first_tangent': first_tangent,
+        'first_tangent_dot': float(np.dot(first_tangent, tangent)),
+        'section_normal_dot': section_dot_normal,
+        'tip_forward': float(np.dot(np.asarray(path[-1]) - center, tangent)),
     }
 
 
@@ -699,15 +696,33 @@ def _verify_result(final_mesh, n_coil_vertices, apex, axis_hat, shell_radius,
     for i, info in enumerate(ring_info):
         print(f"  Lead {i} cross-sect  : mean radius {info['cs_mean'] * 1e3:.2f} mm, "
               f"span {info['cs_span'] * 1e3:.2f} mm")
+        print(f"  Lead {i} frame check : tangent {info['first_tangent_dot']:.3f}, "
+              f"normal {info['section_normal_dot']:.3f}, "
+              f"forward {info['tip_forward'] * 1e3:.1f} mm")
+
+    cut_vec = c1 - c0
+    tip_vec = ring_info[1]['tip'] - ring_info[0]['tip']
+    denom = np.linalg.norm(cut_vec) * np.linalg.norm(tip_vec)
+    tip_order_dot = float(np.dot(cut_vec, tip_vec) / denom) if denom > 1e-12 else 0.0
+    frame_ok = all(
+        info['first_tangent_dot'] > 0.90
+        and info['section_normal_dot'] > 0.90
+        and info['tip_forward'] >= -1e-4
+        for info in ring_info
+    )
+    tip_order_ok = tip_order_dot > 0.0
+    print(f"  Tip order check  : dot {tip_order_dot:.3f}  "
+          f"({'OK' if tip_order_ok else 'CROSSED'})")
 
     status = 'OK - watertight' if n_boundary == 0 and n_nonmanifold == 0 else (
         f'{n_boundary} open edges, {n_nonmanifold} non-manifold edges')
     print(f"  Boundary edges : {n_boundary}  ({status})")
+    print(f"  Local frame checks: {'OK' if frame_ok and tip_order_ok else 'CHECK'}")
     if n_boundary > 0:
         print("  TIP: open edges at the lead/coil junction -- try increasing "
-              "cs_blend_rings / wire_tangent_run / junction_rigid_steps in "
+              "cs_blend_rings / junction_rigid_steps in "
               "LeadsConfig for a smoother tangent-continuous transition.")
-    return n_boundary == 0 and n_nonmanifold == 0
+    return n_boundary == 0 and n_nonmanifold == 0 and frame_ok and tip_order_ok
 
 
 # ---------------------------------------------------------------------------
@@ -802,9 +817,9 @@ def run_leads(
           f"B={wire_profile['semi_b'] * 1e3:.2f} mm  "
           f"({_P.cross_section_n} pts)")
     print(f"  Cut / start gap : {_P.cut_loop_length * 1e3:.1f} mm")
-    if _P.cut_loop_length > 0.025:
-        print(f"  WARNING           : cut_loop_length > 25 mm - coil groove is "
-              f"heavily opened; leads keep wire profile via template.")
+    if _P.cut_loop_length > 0.080:
+        print(f"  WARNING           : cut_loop_length > 80 mm - coil groove is "
+              f"very heavily opened; consider reducing lead_length/lead_blend.")
 
     print("Cutting open gap...")
     del_mask = _flood_bridge(mesh, apex_v, apex, axis_hat, circ_unit,
@@ -852,38 +867,41 @@ def run_leads(
     print(f"  Shared exit plane : {axis_name} = {exit_axial * 1e3:.2f} mm")
 
     spread_signs = preset.spread_signs
-    print(f"  Spread signs      : lead0={spread_signs[0]:+d}, lead1={spread_signs[1]:+d}")
+    print(f"  Spread signs (fallback): lead0={spread_signs[0]:+d}, lead1={spread_signs[1]:+d}")
 
-    print("Building leads (tangent -> face-in -> peel-out -> bore)...")
+    print("Building leads (local frame -> smooth shell Bezier to bore)...")
     lead_parts = []
     ring_info = []
     for i, (ring_idx, center) in enumerate(ring_data):
-        sign = float(spread_signs[i])
-        loop_dir = circ_unit * sign
-        toward_gap = -loop_dir
+        fallback = circ_unit * float(spread_signs[i])
+        normal, tangent, binormal = _surface_frame(
+            center, ref_center, open_mesh.vertices, axis_hat,
+            _P.tangent_radius, fallback_tangent=fallback,
+        )
         fan_offset = np.zeros(3)
         if _P.tip_fan > 1e-9:
-            tip_fan_dir = _tip_fan_direction(loop_dir)
-            fan_offset = tip_fan_dir * (_P.tip_fan / 2.0)
+            fan_offset = tangent * (_P.tip_fan / 2.0)
         tip = _common_tip(exit_axial, tip_anchor, axis_hat, shell_radius, fan_offset)
+        min_forward = min(max(0.25 * _P.tip_fan, _P.conductor_width),
+                          0.45 * _P.cut_loop_length)
+        forward = float(np.dot(tip - center, tangent))
+        if forward < min_forward:
+            tip = _snap_to_shell(tip + tangent * (min_forward - forward),
+                                 axis_hat, shell_radius)
+        exit_tangent = _project_exit_tangent(exit_dir, tip, axis_hat)
         extra, faces, ridx, info = _build_attached_lead(
             ring_indices=ring_idx,
             vertices=open_mesh.vertices,
             wire_profile=wire_profile,
-            wire_tangent=wire_tangent,
-            toward_gap=toward_gap,
-            outward=loop_dir,
+            normal=normal,
+            tangent=tangent,
+            binormal=binormal,
             tip=tip,
-            exit_dir=exit_dir,
+            exit_tangent=exit_tangent,
             axis_hat=axis_hat,
             shell_radius=shell_radius,
-            wire_run=_P.wire_tangent_run,
-            face_in=_P.face_toward_gap,
-            peel_out=_P.peel_out,
             lead_blend=_P.lead_blend,
-            tip_fan=_P.tip_fan,
             n_steps=_P.lead_steps,
-            coil_junction_backset=False,
         )
         lead_parts.append((extra, faces, ridx, info['n_path']))
         ring_info.append(info)
@@ -915,11 +933,8 @@ def run_leads(
     print(f"{'=' * 60}")
     print(f"  Gradient axis  : {cfg.axis_label}")
     print(f"  Cut / start gap: {_P.cut_loop_length * 1e3:.1f} mm")
-    print(f"  Wire tangent   : {_P.wire_tangent_run * 1e3:.1f} mm")
-    print(f"  Face-in run    : {_P.face_toward_gap * 1e3:.1f} mm")
-    print(f"  Peel-out run   : {_P.peel_out * 1e3:.1f} mm")
-    print(f"  Junction backset: coil {_P.lead_junction_coil_backset * 1e3:.1f} mm  "
-          f"gap {_P.lead_junction_gap_backset * 1e3:.1f} mm")
+    print(f"  Lead length    : {_P.lead_length * 1e3:.1f} mm")
+    print(f"  Lead blend     : {_P.lead_blend * 1e3:.1f} mm")
     print(f"  Tip fan        : {_P.tip_fan * 1e3:.1f} mm")
     print(f"  Conductor oval : {_P.conductor_width * 1e3:.2f} mm  "
           f"A={_P.cross_section_a_frac} B={_P.cross_section_b_frac}")

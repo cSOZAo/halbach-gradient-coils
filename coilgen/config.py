@@ -132,17 +132,21 @@ class LeadsConfig:
     cyl_axis: Optional[np.ndarray] = None      # None -> rotated_cylinder_axis
     shell_radius: Optional[float] = None       # None -> infer from mesh
 
-    cut_loop_length: float = 0.050             # [m]
+    cut_loop_length: float = 0.020             # [m] gap opened along the loop so the
+                                               # shared-tip lead arc has room without crossing
     gap_axial_length: float = 0.012            # [m]
     wire_isolate_half: float = 0.008           # [m]
     tangent_radius: float = 0.006              # [m]
-    wire_tangent_run: float = 0.020            # [m] longer tangent follow -> smoother junction
-    face_toward_gap: float = 0.003             # [m]
-    peel_out: float = 0.006                    # [m]
-    lead_junction_coil_backset: float = 0.003  # [m]
-    lead_junction_gap_backset: float = 0.002   # [m]
+    # Legacy S-curve params (no longer wired into the centreline; kept for GUI
+    # / back-compat). The lead now uses a single smooth Bezier from cut face to
+    # bore, sized by lead_length / lead_blend.
+    wire_tangent_run: float = 0.020            # [m] legacy
+    face_toward_gap: float = 0.003             # [m] legacy
+    peel_out: float = 0.006                    # [m] legacy
+    lead_junction_coil_backset: float = 0.0    # [m] legacy (was 0.003; lip removed)
+    lead_junction_gap_backset: float = 0.0     # [m] legacy (was 0.002; lip removed)
     lead_length: float = 0.02                  # [m]
-    lead_blend: float = 0.030                  # [m]
+    lead_blend: float = 0.015                  # [m] cubic Bezier handle floor
     tip_fan: float = 0.015                     # [m]
     lead_steps: int = 128
     cs_blend_rings: int = 20                   # smoother wire->lead section transition

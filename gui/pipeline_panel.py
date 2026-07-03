@@ -148,11 +148,11 @@ class PipelinePanel(ttk.Frame):
             variable=self.adv_visible, command=self._toggle_advanced)
         self.adv_toggle.pack(anchor='w')
         self.adv_body = ttk.Frame(self.adv_frame)
-        # wire_tangent_run [m]
-        ttk.Label(self.adv_body, text="wire_tangent_run [m]:").grid(
+        # lead_blend [m] (cubic Bezier handle floor for the smooth lead curve)
+        ttk.Label(self.adv_body, text="lead_blend [m]:").grid(
             row=0, column=0, sticky='w', padx=4, pady=2)
-        self.wire_tangent_run_var = tk.StringVar(value='0.020')
-        ttk.Entry(self.adv_body, textvariable=self.wire_tangent_run_var,
+        self.lead_blend_var = tk.StringVar(value='0.015')
+        ttk.Entry(self.adv_body, textvariable=self.lead_blend_var,
                   width=10).grid(row=0, column=1, sticky='w')
         # cs_blend_rings
         ttk.Label(self.adv_body, text="cs_blend_rings:").grid(
@@ -310,7 +310,7 @@ class PipelinePanel(ttk.Frame):
         # Advanced leads knobs (optional; only override if shown & valid).
         if getattr(self, 'adv_visible', None) and self.adv_visible.get():
             try:
-                cfg.leads.wire_tangent_run = float(self.wire_tangent_run_var.get())
+                cfg.leads.lead_blend = float(self.lead_blend_var.get())
             except ValueError:
                 pass
             try:
