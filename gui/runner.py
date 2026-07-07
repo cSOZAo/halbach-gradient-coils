@@ -59,6 +59,7 @@ class WorkerRunner:
         self.user_q: queue.Queue = queue.Queue()
         self.worker: Optional[threading.Thread] = None
         self._poll_id = None
+        self.stop_requested = threading.Event()
 
     # ----- log draining ---------------------------------------------------
 
@@ -103,6 +104,7 @@ class WorkerRunner:
         if self.worker is not None and self.worker.is_alive():
             self.log(">> a job is already running\n")
             return
+        self.stop_requested.clear()
         self.log_widget.delete('1.0', 'end')
         if self.progress is not None:
             self.progress['value'] = 0
@@ -139,3 +141,11 @@ class WorkerRunner:
 
     def log(self, msg: str):
         self.log_q.put(msg)
+
+    def request_stop(self):
+        """Ask the running job to stop at its next cooperative checkpoint."""
+        self.stop_requested.set()
+        self.log(">> stop requested; waiting for the current step to finish\n")
+
+    def should_stop(self) -> bool:
+        return self.stop_requested.is_set()

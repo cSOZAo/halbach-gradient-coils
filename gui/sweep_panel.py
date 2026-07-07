@@ -37,7 +37,7 @@ class SweepPanel(ttk.Frame):
         axis_combo.grid(row=0, column=1, sticky='w')
         axis_combo.bind('<<ComboboxSelected>>', lambda _e: self._fill_defaults())
 
-        ttk.Label(form, text="Radio [m]:").grid(row=1, column=0, sticky='w', padx=4, pady=4)
+        ttk.Label(form, text="Radio externo [m]:").grid(row=1, column=0, sticky='w', padx=4, pady=4)
         self.radius_var = tk.StringVar(value='0.150')
         ttk.Entry(form, textvariable=self.radius_var, width=10).grid(row=1, column=1, sticky='w')
         ttk.Label(form, text="Altura [m]:").grid(row=1, column=2, sticky='w', padx=4)

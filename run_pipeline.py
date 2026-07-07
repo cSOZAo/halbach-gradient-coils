@@ -103,7 +103,7 @@ def _ensure_wire_exists(cfg: Config, run_dir: str, run_gradient: bool) -> str:
         f"matching an existing run.")
 
 
-def run_pipeline(cfg: Config) -> str:
+def run_pipeline(cfg: Config, should_stop=None) -> str:
     """Run the configured pipeline steps; returns the run directory.
 
     Respects ``cfg.output_dir`` when set (GUI / ``--output-dir``). Only
@@ -122,12 +122,21 @@ def run_pipeline(cfg: Config) -> str:
     print("=" * 70)
     print(f"  Gradient axis : {cfg.axis_label}")
     print(f"  Layer         : {cfg.shell.layer}")
+    print(f"  Radius        : outer={cfg.cylinder.radius*1000:.2f} mm  "
+          f"inner={cfg.shell_inner_radius*1000:.2f} mm  "
+          f"design_r={cfg.cylinder_design_radius*1000:.2f} mm")
     print(f"  Results dir   : {run_dir}")
     print(f"  Steps         : gradient={cfg.control.run_gradient}  "
           f"leads={cfg.control.run_leads}  shell={cfg.control.run_shell}")
     print()
 
+    def _stop_requested() -> bool:
+        return bool(should_stop and should_stop())
+
     if cfg.control.run_gradient:
+        if _stop_requested():
+            print("  Stop requested before gradient step.")
+            return run_dir
         print("[1/3] Running pyCoilGen (gradient)...")
         run_gradient(cfg, output_dir=run_dir, check_overlap=cfg.overlap_warn)
         print()
@@ -135,12 +144,18 @@ def run_pipeline(cfg: Config) -> str:
         _ensure_wire_exists(cfg, run_dir, cfg.control.run_gradient)
 
     if cfg.control.run_leads:
+        if _stop_requested():
+            print("  Stop requested before leads step.")
+            return run_dir
         wire_stl = _ensure_wire_exists(cfg, run_dir, cfg.control.run_gradient)
         print("[2/3] Adding lead wires...")
         run_leads(cfg, input_stl=wire_stl)
         print()
 
     if cfg.control.run_shell:
+        if _stop_requested():
+            print("  Stop requested before shell step.")
+            return run_dir
         print("[3/3] Carving shell halves...")
         run_shell(cfg, output_dir=run_dir)
         print()

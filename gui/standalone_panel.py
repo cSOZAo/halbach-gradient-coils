@@ -51,7 +51,7 @@ class StandalonePanel(ttk.Frame):
         ttk.Label(top, text="Niveles (wire):").grid(row=2, column=2, sticky='w', padx=4)
         self.levels_var = tk.StringVar(value='26')
         ttk.Entry(top, textvariable=self.levels_var, width=8).grid(row=2, column=3, sticky='w')
-        ttk.Label(top, text="Radio [m]:").grid(row=3, column=0, sticky='w', padx=4, pady=4)
+        ttk.Label(top, text="Radio externo [m]:").grid(row=3, column=0, sticky='w', padx=4, pady=4)
         self.radius_var = tk.StringVar(value='0.150')
         ttk.Entry(top, textvariable=self.radius_var, width=10).grid(row=3, column=1, sticky='w')
 

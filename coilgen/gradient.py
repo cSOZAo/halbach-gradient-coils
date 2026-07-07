@@ -147,7 +147,7 @@ def run_gradient(
     # ----- arg dict --------------------------------------------------------
     cyl = cfg.cylinder
     cylinder_mesh_parameter_list = [
-        cyl.height, cyl.radius,
+        cyl.height, cfg.cylinder_design_radius,
         cyl.n_circ, cyl.n_long,
         *cyl.rot_axis,
         cyl.rot_angle,
@@ -167,7 +167,7 @@ def run_gradient(
         'conductor_cross_section_height': cfg.fasthenry_conductor_height,
         'specific_conductivity_conductor': cfg.fasthenry.specific_conductivity,
         'cross_sectional_points':        cfg.cross_sectional_points.tolist(),
-        'normal_shift_length':           cfg.winding.normal_shift,
+        'normal_shift_length':           cfg.normal_shift_length,
         'normal_shift_smooth_factors':   cfg.winding.normal_shift_smooth,
         'skip_postprocessing':          False,
         'skip_inductance_calculation':  not cfg.fasthenry.enabled,
@@ -189,6 +189,17 @@ def run_gradient(
     print(f"  FastHenry enabled     : {cfg.fasthenry.enabled}")
     print(f"  FastHenry binary      : {fh_resolved or 'not configured'}")
     print(f"  FastHenry available   : {fh_available}")
+    print(f"  Cable height          : {cfg.cable_height*1000:.3f} mm")
+    print(f"  Layer crossing gap    : {cfg.layer_crossing_gap*1000:.3f} mm")
+    print(f"  normal_shift_length   : {cfg.normal_shift_length*1000:.3f} mm")
+    print(f"  R_GUI (shell outer)   : {cfg.cylinder.radius*1000:.3f} mm")
+    print(f"  Groove margin/face    : {cfg.radial_peel*1000:.3f} mm")
+    print(f"  Shell wall thickness  : {cfg.shell_wall_thickness*1000:.3f} mm")
+    print(f"  Shell inner bore      : {cfg.shell_inner_radius*1000:.3f} mm")
+    print(f"  pyCoilGen design_r    : {cfg.cylinder_design_radius*1000:.3f} mm  "
+          f"(base+offset)")
+    print(f"  Wire envelope         : {cfg.estimated_wire_inner_radius*1000:.3f}"
+          f" -- {cfg.estimated_wire_outer_radius*1000:.3f} mm")
     print("=" * 70)
 
     # pyCoilGen resolves target_fields/ relative to CWD.
@@ -218,6 +229,17 @@ def run_gradient(
             print(f"\n  Overlap check OK: min wire distance "
                   f"{overlap_report.min_distance_m*1000:.3f} mm "
                   f"(threshold {overlap_report.threshold_m*1000:.2f} mm).")
+
+    # ----- Wire radial extent vs analytical shell -------------------------
+    try:
+        from .shell import warn_wire_radial_mismatch
+        wire_path = _paths.resolve_wire_stl_path(
+            output_dir, cfg.gradient_axis,
+            cfg.tikhonov_factor, cfg.num_levels,
+        )
+        warn_wire_radial_mismatch(cfg, wire_path)
+    except (FileNotFoundError, RuntimeError):
+        pass
 
     print(f"  Results directory      : {output_dir}\n")
     return solution, metrics, overlap_report

@@ -292,6 +292,83 @@ def build_radius_limiter(fusion_dims, align_axial_center, trim_m,
     return cyl.transform(T)
 
 
+def build_auto_outer_limiter(cfg: Config, align_dims: dict,
+                             rot_axis, rot_angle):
+    """Solid cylinder R = final outer radius X (clips padded shell)."""
+    outer_r = cfg.cylinder.radius
+    height = align_dims['axial_extent'] * cfg.shell.auto_length_factor + 0.002
+    m3d.set_circular_segments(_P.circular_segments)
+    cyl = m3d.Manifold.cylinder(height, outer_r, center=True)
+    R = geo.rodrigues_rotation_matrix(rot_axis, rot_angle)
+    axis_hat = R @ np.array([0.0, 0.0, 1.0])
+    T = np.zeros((3, 4), dtype=np.float64)
+    T[:3, :3] = R
+    T[:3, 3] = align_dims['axial_center'] * axis_hat
+    return cyl.transform(T)
+
+
+def build_auto_radius_limiter(cfg: Config, align_dims: dict,
+                              rot_axis, rot_angle):
+    """Backward-compatible alias for :func:`build_auto_outer_limiter`."""
+    return build_auto_outer_limiter(cfg, align_dims, rot_axis, rot_angle)
+
+
+def build_auto_inner_peel_cylinder(cfg: Config, align_dims: dict,
+                                   rot_axis, rot_angle):
+    """Solid cylinder R = opened inner bore; subtract to peel inner radial trim."""
+    inner_r = cfg.shell_build_inner_radius + cfg.radial_peel
+    height = align_dims['axial_extent'] * cfg.shell.auto_length_factor + 0.002
+    m3d.set_circular_segments(_P.circular_segments)
+    cyl = m3d.Manifold.cylinder(height, inner_r, center=True)
+    R = geo.rodrigues_rotation_matrix(rot_axis, rot_angle)
+    axis_hat = R @ np.array([0.0, 0.0, 1.0])
+    T = np.zeros((3, 4), dtype=np.float64)
+    T[:3, :3] = R
+    T[:3, 3] = align_dims['axial_center'] * axis_hat
+    return cyl.transform(T)
+
+
+def peel_inner_skin(result_man, inner_cyl, label, skin_m):
+    print(f"    Peeling inner {skin_m * 1000:.2f} mm radial trim on {label} "
+          f"(opening bore)...", flush=True)
+    t0 = time.perf_counter()
+    peeled = result_man - inner_cyl
+    print(f"      Done ({time.perf_counter() - t0:.2f} s)")
+    return peeled
+
+
+def warn_wire_radial_mismatch(cfg: Config, wire_stl: str, tol_m: float = 0.0003):
+    """Log a warning when measured wire radial extent deviates from analytical."""
+    if not os.path.isfile(wire_stl):
+        return
+    rot_axis = cfg.cylinder.rot_axis
+    rot_angle = cfg.cylinder.rot_angle
+    dims = geo.measure_wire_dims(wire_stl, rot_axis, rot_angle)
+    exp_outer = cfg.estimated_wire_outer_radius
+    exp_inner = cfg.estimated_wire_inner_radius
+    exp_center = cfg.estimated_wire_radial_center
+    d_outer = abs(dims['outer_r'] - exp_outer)
+    d_inner = abs(dims['inner_r'] - exp_inner)
+    meas_center = 0.5 * (dims['outer_r'] + dims['inner_r'])
+    d_center = abs(meas_center - exp_center)
+    print("  Wire radial check:")
+    print(f"    Measured outer_r : {dims['outer_r']*1000:.2f} mm  "
+          f"(expected {exp_outer*1000:.2f} mm = R_GUI)")
+    print(f"    Measured inner_r : {dims['inner_r']*1000:.2f} mm  "
+          f"(expected {exp_inner*1000:.2f} mm)")
+    print(f"    Measured center  : {meas_center*1000:.2f} mm  "
+          f"(expected {exp_center*1000:.2f} mm)")
+    print(f"    Shell radii      : outer {cfg.shell_outer_radius*1000:.2f} mm, "
+          f"inner {cfg.shell_inner_radius*1000:.2f} mm  "
+          f"(center {cfg.shell_radial_center*1000:.2f} mm)")
+    if d_outer > tol_m or d_inner > tol_m or d_center > tol_m:
+        print(f"  WARNING: wire radial extent differs from analytical model by "
+              f"up to {max(d_outer, d_inner, d_center)*1000:.2f} mm (tol {tol_m*1000:.1f} mm). "
+              f"Grooves may be misaligned vs the shell.")
+    else:
+        print("    OK — within tolerance.")
+
+
 def intersect_with_limiter(result_man, limiter, label, reason):
     print(f"    {reason} on {label}...", flush=True)
     t0 = time.perf_counter()
@@ -383,7 +460,10 @@ def _populate_params(cfg: Config):
     _P.lead_groove_expansion = s.lead_groove_expansion
     _P.leads_second_subtract = s.leads_second_subtract
     _P.shell_outer_pad = s.shell_outer_pad
-    _P.outer_skin_trim = s.outer_skin_trim
+    if s.use_custom_stl:
+        _P.outer_skin_trim = s.outer_skin_trim
+    else:
+        _P.outer_skin_trim = cfg.outer_skin_trim
     _P.coil_second_subtract = s.coil_second_subtract
     _P.coil_second_expansion = s.coil_second_expansion
     _P.resolve_self_intersections = s.resolve_self_intersections
@@ -398,58 +478,55 @@ def _populate_params(cfg: Config):
 
 def build_auto_hollow_cylinder(cfg: Config, wire_stl: str) -> "m3d.Manifold":
     """
-    Build a single 1-piece hollow cylinder shell sized to the coil-only wire.
+    Build a single 1-piece hollow cylinder from analytical dimensions.
 
-    Dimensions (computed from the wire without leads):
-      - cable_height = 2 * semi_a, semi_a = cross_section_a_frac * conductor_width
-      - margin per side = auto_margin_pct * cable_height
-      - cyl_inner_r = wire r_min + margin   (inner-layer groove opens inside)
-      - cyl_outer_r = wire r_max - margin   (outer-layer groove opens outside)
-      - cyl_length  = wire axial_extent * auto_length_factor (default 1.05)
-
-    The cylinder is built in metres along +Z, then transformed to pyCoilGen's
-    frame (R_y(pi/2) etc.) and centred on the wire's axial centre.
-    Returns a single Manifold (not split into halves).
+    ``cylinder.radius`` is the shell outer radius R (GUI).  Inner bore is
+    R − (2h + gap − 2×radial_peel).  No post-boolean peel — margin is in
+    the wall thickness.
     """
     s = cfg.shell
-    w = cfg.wire
     rot_axis = cfg.cylinder.rot_axis
     rot_angle = cfg.cylinder.rot_angle
 
     dims = geo.measure_wire_dims(wire_stl, rot_axis, rot_angle)
-    r_min = dims['inner_r']
-    r_max = dims['outer_r']
     axial_extent = dims['axial_extent']
     axial_center = dims['axial_center']
 
-    semi_a = w.cross_section_a_frac * w.conductor_width
-    cable_height = 2.0 * semi_a
-    margin = s.auto_margin_pct * cable_height
+    semi_a = cfg.conductor_semi_a
+    cable_height = cfg.cable_height
+    peel = cfg.radial_peel
+    gap = cfg.layer_crossing_gap
     length_factor = s.auto_length_factor
 
-    cyl_inner_r = r_min + margin
-    cyl_outer_r = r_max - margin
+    cyl_outer_r = cfg.shell_outer_radius
+    cyl_inner_r = cfg.shell_inner_radius
     cyl_length = axial_extent * length_factor
 
-    # Guard: the wire groove must actually open on both sides.
+    if cyl_inner_r <= 0:
+        raise RuntimeError(
+            f"Auto hollow-cylinder inner radius {cyl_inner_r*1000:.2f} mm <= 0. "
+            f"Reduce cable height, layer gap, margin, or increase outer radius.")
     if cyl_inner_r >= cyl_outer_r:
         raise RuntimeError(
             f"Auto hollow-cylinder dims degenerate: inner_r={cyl_inner_r*1000:.2f} mm "
-            f">= outer_r={cyl_outer_r*1000:.2f} mm. Wire radial span "
-            f"({(r_max-r_min)*1000:.2f} mm) is too small vs margin "
-            f"({margin*1000:.2f} mm = {s.auto_margin_pct*100:.1f}% of cable height "
-            f"{cable_height*1000:.2f} mm). Reduce auto_margin_pct.")
+            f">= outer_r={cyl_outer_r*1000:.2f} mm.")
 
-    print("  Auto hollow-cylinder (1 piece):")
-    print(f"    Wire radial range : {r_min*1000:.2f} -- {r_max*1000:.2f} mm")
+    warn_wire_radial_mismatch(cfg, wire_stl)
+
+    print("  Auto hollow-cylinder (1 piece, analytical):")
+    print(f"    Wire radial range : {dims['inner_r']*1000:.2f} -- "
+          f"{dims['outer_r']*1000:.2f} mm  (reference)")
     print(f"    Wire axial extent : {axial_extent*1000:.1f} mm "
           f"(centre {axial_center*1000:.2f} mm)")
-    print(f"    Cable height      : {cable_height*1000:.3f} mm "
+    print(f"    Cable height (h)  : {cable_height*1000:.3f} mm "
           f"(semi_a {semi_a*1000:.3f} mm)")
-    print(f"    Margin / side     : {margin*1000:.3f} mm "
-          f"({s.auto_margin_pct*100:.1f}%)")
-    print(f"    cyl_inner_r       : {cyl_inner_r*1000:.2f} mm")
-    print(f"    cyl_outer_r       : {cyl_outer_r*1000:.2f} mm")
+    print(f"    Layer gap         : {gap*1000:.3f} mm")
+    print(f"    Radial margin     : {peel*1000:.3f} mm per face "
+          f"({s.auto_margin_pct*100:.1f}% of cable height)")
+    print(f"    Wall thickness    : {cfg.shell_wall_thickness*1000:.2f} mm "
+          f"(2h + gap - 2*margin)")
+    print(f"    cyl_inner         : {cyl_inner_r*1000:.2f} mm")
+    print(f"    cyl_outer         : {cyl_outer_r*1000:.2f} mm")
     print(f"    cyl_length        : {cyl_length*1000:.1f} mm "
           f"(factor {length_factor})")
 
@@ -519,6 +596,7 @@ def run_shell(
     if mode not in ('with_leads', 'with_leads_by_component', 'two_pass'):
         raise RuntimeError(f"unknown subtract_mode {mode!r}")
 
+    auto_mode = not cfg.shell.use_custom_stl
     layer = _P.layer
     shell_dir = cfg.shell.stl_dir
     out_dir = output_dir or os.path.dirname(subtract_path)
@@ -542,7 +620,10 @@ def run_shell(
         print(f"  Gradient layer      : {layer}  (g_{layer}a + g_{layer}b)")
     else:
         print(f"  Shell mode          : auto hollow cylinder (1 piece)")
-        print(f"  Auto margin         : {cfg.shell.auto_margin_pct*100:.1f}% of cable height")
+        print(f"  Groove margin       : {cfg.shell.auto_margin_pct*100:.1f}% of cable height "
+              f"({cfg.radial_peel*1000:.2f} mm per face)")
+        print(f"  Shell wall          : {cfg.shell_wall_thickness*1000:.2f} mm "
+              f"(2h + gap - 2*margin)")
         print(f"  Auto length factor  : {cfg.shell.auto_length_factor}")
     print(f"  Subtract mode       : {mode}")
     print(f"  Align wire STL      : {align_path}")
@@ -558,7 +639,7 @@ def run_shell(
     print(f"  Lead expansion      : {lead_groove_exp * 1000:.2f} mm")
     print(f"  Leads 2nd pass      : {_P.leads_second_subtract and lead_groove_exp > 0}")
     print(f"  Shell outer pad     : {outer_pad * 1000:.2f} mm")
-    print(f"  Outer skin trim     : {skin_trim * 1000:.2f} mm")
+    print(f"  Radial peel per face : {skin_trim * 1000:.2f} mm")
     print(f"  Coil 2nd pass exp   : {second_exp * 1000:.2f} mm" if second_sub else "  Coil 2nd pass       : off")
     print(f"  Voxel remesh        : {voxel_remesh}")
     print(f"  Output units        : {'mm' if export_mm else 'm'}")
@@ -599,7 +680,6 @@ def run_shell(
     print()
 
     axis = geo.rotated_cylinder_axis(rot_axis, rot_angle)
-    auto_mode = not cfg.shell.use_custom_stl
 
     # ----- build the shell manifold(s) -------------------------------------
     coil_wire_fat = None
@@ -713,7 +793,6 @@ def run_shell(
             lead_mans = prepare_lead_components(leads_path, lead_groove_exp,
                                                 label='leads (2nd pass)')
             result_man = subtract_wires_from_shell(result_man, lead_mans, 'shell leads')
-        # No outer-pad / skin-trim limiter in auto mode: cylinder dims are exact.
         results = [('shell', result_man)]
     else:
         step += 1
@@ -751,13 +830,13 @@ def run_shell(
                     result_b, limiter_design, f'B (g_{layer}b)',
                     f"Restoring design outer ({outer_pad * 1000:.2f} mm pad removed)")
             elif skin_trim > 0:
-                print(f"    Pass 3 -- peel outer {skin_trim * 1000:.2f} mm skin...")
+                print(f"    Pass 3 -- peel outer {skin_trim * 1000:.2f} mm radial trim...")
                 result_a = intersect_with_limiter(
                     result_a, limiter_design, f'A (g_{layer}a)',
-                    f"Trimming outer {skin_trim * 1000:.2f} mm skin")
+                    f"Trimming outer {skin_trim * 1000:.2f} mm radial trim")
                 result_b = intersect_with_limiter(
                     result_b, limiter_design, f'B (g_{layer}b)',
-                    f"Trimming outer {skin_trim * 1000:.2f} mm skin")
+                    f"Trimming outer {skin_trim * 1000:.2f} mm radial trim")
         results = [('a', result_a), ('b', result_b)]
     print()
 

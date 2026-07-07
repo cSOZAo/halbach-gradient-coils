@@ -332,16 +332,16 @@ def _pycoilgen_oval_profile():
     """Closed ellipse matching the pyCoilGen conductor cross-section."""
     theta = np.linspace(0.0, 2.0 * np.pi, _P.cross_section_n, endpoint=True)
     template = np.column_stack([
-        _P.cross_section_a_frac * _P.conductor_width * np.sin(theta),
-        _P.cross_section_b_frac * _P.conductor_width * np.cos(theta),
+        _P.conductor_semi_a * np.sin(theta),
+        _P.conductor_semi_b * np.cos(theta),
     ])
     radii = np.linalg.norm(template, axis=1)
     return {
         'template_2d': template,
         'cs_mean': float(radii.mean()),
         'cs_span': float(radii.ptp()),
-        'semi_a': _P.cross_section_a_frac * _P.conductor_width,
-        'semi_b': _P.cross_section_b_frac * _P.conductor_width,
+        'semi_a': _P.conductor_semi_a,
+        'semi_b': _P.conductor_semi_b,
     }
 
 
@@ -775,6 +775,8 @@ def _populate_params(cfg: Config):
     w = cfg.wire
     lc = cfg.leads
     _P.conductor_width = w.conductor_width
+    _P.conductor_semi_a = cfg.conductor_semi_a
+    _P.conductor_semi_b = cfg.conductor_semi_b
     _P.cross_section_a_frac = w.cross_section_a_frac
     _P.cross_section_b_frac = w.cross_section_b_frac
     _P.cross_section_n = w.cross_section_n
@@ -984,7 +986,7 @@ def run_leads(
     print(f"  Lead length    : {_P.lead_length * 1e3:.1f} mm")
     print(f"  Lead blend     : {_P.lead_blend * 1e3:.1f} mm")
     print(f"  Tip fan        : {_P.tip_fan * 1e3:.1f} mm")
-    print(f"  Conductor oval : {_P.conductor_width * 1e3:.2f} mm  "
+    print(f"  Conductor diam : {_P.conductor_width * 1e3:.2f} mm  "
           f"A={_P.cross_section_a_frac} B={_P.cross_section_b_frac}")
     print(f"  Spread signs   : lead0={spread_signs[0]:+d}, lead1={spread_signs[1]:+d}")
     print(f"  Final mesh     : {len(final.vertices)} verts / {len(final.faces)} faces")

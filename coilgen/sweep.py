@@ -97,7 +97,7 @@ def _write_txt(path: str, cfg: Config, rows: List[dict],
                best_slope: dict, best_error: dict) -> None:
     with open(path, 'w', encoding='utf-8') as fh:
         fh.write(f"Resumen Barrido Tikhonov - EJE {cfg.axis_label}\n")
-        fh.write(f"Construccion: radio={cfg.cylinder.radius}m, "
+        fh.write(f"Construccion: radio_externo={cfg.cylinder.radius}m, "
                  f"largo={cfg.cylinder.height}m, niveles={cfg.num_levels}\n")
         fh.write("-" * 70 + "\n")
         fh.write("Fase\tTikhonov\tPendiente[mT/(m.A)]\tErrorMedio[%]\tRMSE/range\n")
@@ -187,7 +187,7 @@ def run_tikhonov_sweep(
 
     print("\n" + "=" * 60)
     print(f"  BARRIDO TIKHONOV - {cfg.axis_label} "
-          f"(radio {cfg.cylinder.radius} m)")
+          f"(radio externo {cfg.cylinder.radius} m)")
     print("=" * 60)
 
     # ----- Phase 1: coarse (log-spaced) -----------------------------------
