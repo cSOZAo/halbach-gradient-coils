@@ -33,6 +33,7 @@ class OverlapReport:
     min_distance_m: float
     threshold_m: float
     pairs: List[Tuple[int, int, float]]   # (seg_i, seg_j, distance)
+    approximate: bool = False             # True when the subsampled fallback ran
 
 
 def _collect_segments(solution) -> Tuple[np.ndarray, np.ndarray, List[Tuple[int, int]]]:
@@ -141,8 +142,11 @@ def detect_collisions(solution, cfg: Config) -> OverlapReport:
 
     try:
         from scipy.spatial import cKDTree
-    except ImportError:
+    except ImportError as exc:
         cKDTree = None
+        print(f"  WARNING: SciPy is unavailable ({exc}); the overlap check falls "
+              f"back to a subsampled scan and may miss collisions. Install scipy "
+              f"(see requirements.txt) for a complete check.")
 
     pairs: List[Tuple[int, int, float]] = []
     min_dist = float('inf')
@@ -184,4 +188,5 @@ def detect_collisions(solution, cfg: Config) -> OverlapReport:
         min_distance_m=min_dist if np.isfinite(min_dist) else float('inf'),
         threshold_m=threshold,
         pairs=pairs,
+        approximate=cKDTree is None,
     )

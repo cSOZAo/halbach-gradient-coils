@@ -14,8 +14,8 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
 from coilgen.config import Config, apply_custom_shell_dims, list_shell_pairs
+from .inputs import parse_float, parse_int, parse_mm
 from .runner import WorkerRunner
-from .units import mm_to_m
 
 
 class StandalonePanel(ttk.Frame):
@@ -123,9 +123,10 @@ class StandalonePanel(ttk.Frame):
         action = self.action_var.get()
         try:
             cfg = Config(gradient_axis=self.axis_var.get(), show_plots=False)
-            cfg.tikhonov_factor = float(self.tikhonov_var.get())
-            cfg.num_levels = int(self.levels_var.get())
-            cfg.cylinder.radius = mm_to_m(self.radius_var.get())
+            cfg.tikhonov_factor = parse_float(self.tikhonov_var.get(), 'Tikhonov')
+            cfg.num_levels = parse_int(self.levels_var.get(), 'Niveles')
+            cfg.cylinder.radius = parse_mm(self.radius_var.get(),
+                                           'Radio externo [mm]')
             cfg.output_dir = out_dir
             if action == 'shell':
                 label = self.shell_pair_var.get().strip()
@@ -161,7 +162,8 @@ class StandalonePanel(ttk.Frame):
 
         def _on_done(result, err):
             if err is not None:
-                messagebox.showerror("Standalone", f"Fallo: {err}")
+                messagebox.showerror("Standalone",
+                                     f"Fallo: {type(err).__name__}: {err}")
             else:
                 payload, overlap = result
                 msg = f"Listo.\n{payload}"

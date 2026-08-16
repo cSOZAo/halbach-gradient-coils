@@ -14,8 +14,8 @@ from typing import Optional
 
 from coilgen.config import Config
 from coilgen import sweep as sweep_mod
+from .inputs import parse_float, parse_int, parse_mm
 from .runner import WorkerRunner
-from .units import mm_to_m
 
 
 class SweepPanel(ttk.Frame):
@@ -106,18 +106,25 @@ class SweepPanel(ttk.Frame):
             return
         try:
             cfg = Config(gradient_axis=self.axis_var.get(),
-                         num_levels=int(self.levels_var.get()),
+                         num_levels=parse_int(self.levels_var.get(), 'Niveles'),
                          show_plots=False, overlap_warn=False)
-            cfg.cylinder.radius = mm_to_m(self.radius_var.get())
-            cfg.cylinder.height = mm_to_m(self.height_var.get())
+            cfg.cylinder.radius = parse_mm(self.radius_var.get(),
+                                           'Radio externo [mm]')
+            cfg.cylinder.height = parse_mm(self.height_var.get(), 'Altura [mm]')
             cfg.sweep.fine = self.fine_var.get()
+            tk_min = parse_float(self.tk_min_var.get(), 'Tikhonov min')
+            tk_max = parse_float(self.tk_max_var.get(), 'Tikhonov max')
+            n_coarse = parse_int(self.n_coarse_var.get(), 'N puntos (grueso)')
+            if tk_min <= 0 or tk_max <= tk_min:
+                raise ValueError(
+                    "El rango de Tikhonov debe cumplir 0 < min < max "
+                    f"(actual {tk_min} .. {tk_max}).")
+            if n_coarse < 2:
+                raise ValueError(
+                    f"'N puntos (grueso)' debe ser >= 2 (actual {n_coarse}).")
         except (ValueError, KeyError) as exc:
             messagebox.showerror("Parametros invalidos", str(exc))
             return
-
-        tk_min = float(self.tk_min_var.get())
-        tk_max = float(self.tk_max_var.get())
-        n_coarse = int(self.n_coarse_var.get())
 
         # Clear table
         for item in self.tree.get_children():
@@ -142,7 +149,8 @@ class SweepPanel(ttk.Frame):
 
         def _on_done(result, err):
             if err is not None:
-                messagebox.showerror("Barrido", f"Fallo: {err}")
+                messagebox.showerror("Barrido",
+                                     f"Fallo: {type(err).__name__}: {err}")
             elif result is not None:
                 bs = result.best_slope
                 be = result.best_error

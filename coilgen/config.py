@@ -507,9 +507,10 @@ class Config:
         """
         Return ``(stl_a, stl_b)`` for the shell subtraction.
 
-        When ``use_custom_stl`` and the two custom half STLs are provided and
-        exist, return those. Otherwise fall back to the Fusion assets by
-        ``shell.layer`` (CLI legacy / assets workflow).
+        When ``use_custom_stl`` and the two custom half STLs are provided,
+        return those, raising when either path is missing so the run does not
+        silently carve the wrong geometry. Without custom halves, fall back to
+        the Fusion assets by ``shell.layer`` (CLI legacy / assets workflow).
         """
         if self.shell.use_custom_stl:
             a = self.shell.custom_stl_a
@@ -517,8 +518,17 @@ class Config:
             # Backward compat: a single custom_stl maps to half A only.
             if a is None and self.shell.custom_stl is not None:
                 a = self.shell.custom_stl
-            if a and b and os.path.isfile(a) and os.path.isfile(b):
+            if a and b:
+                missing = [p for p in (a, b) if not os.path.isfile(p)]
+                if missing:
+                    raise FileNotFoundError(
+                        "custom shell half STL(s) not found: "
+                        + ', '.join(repr(p) for p in missing))
                 return a, b
+            if a or b:
+                raise ValueError(
+                    "custom shell mode needs both halves; got "
+                    f"custom_stl_a={a!r}, custom_stl_b={b!r}.")
         layer = self.shell.layer
         return (
             os.path.join(self.shell.stl_dir, f'g_{layer}a.stl'),

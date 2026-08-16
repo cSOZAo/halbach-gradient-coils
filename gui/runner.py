@@ -13,8 +13,9 @@ import io
 import queue
 import sys
 import threading
+import traceback
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from typing import Callable, Optional
 
 
@@ -126,10 +127,13 @@ class WorkerRunner:
                 if on_done is not None:
                     self.root.after(0, lambda: on_done(result, None))
             except Exception as exc:  # surface to the log + on_done
-                self.log_q.put(f'\n>> ERROR: {exc}\n')
+                self.log_q.put(f'\n>> ERROR: {type(exc).__name__}: {exc}\n')
+                self.log_q.put(traceback.format_exc())
+                err = exc
                 if on_done is not None:
-                    err = exc
                     self.root.after(0, lambda: on_done(None, err))
+                else:
+                    self.root.after(0, lambda: self._report_error(err))
             finally:
                 sys.stdout, sys.stderr = old_stdout, old_stderr
                 redirect.flush()
@@ -138,6 +142,10 @@ class WorkerRunner:
 
         self.worker = threading.Thread(target=_worker, daemon=True)
         self.worker.start()
+
+    def _report_error(self, exc: BaseException):
+        """Fallback dialog when a panel passed no ``on_done`` handler."""
+        messagebox.showerror('Error', f'{type(exc).__name__}: {exc}')
 
     def log(self, msg: str):
         self.log_q.put(msg)

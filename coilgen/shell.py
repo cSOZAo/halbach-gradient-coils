@@ -170,6 +170,9 @@ def prepare_wire_manifold(stl_path, expansion, axis, label='wire'):
     if not wire_tm.is_watertight:
         print(f"  WARNING: {label} mesh is NOT watertight. Attempting repair...")
         wire_tm.fill_holes()
+        if not wire_tm.is_watertight:
+            print(f"  WARNING: {label} mesh is still not watertight after repair -- "
+                  f"the boolean subtraction may drop or distort grooves.")
 
     wire_tm.fix_normals()
     print(f"  {label}: {len(wire_tm.vertices)} verts, {len(wire_tm.faces)} faces")
@@ -222,17 +225,25 @@ def prepare_lead_components(stl_path, expansion, label='leads'):
     print(f"  {label}: {len(components)} component(s), "
           f"{sum(len(c.faces) for c in components)} faces total")
     mans = []
+    open_components: list[int] = []
     for i, comp in enumerate(components):
         if not comp.is_watertight:
             print(f"    WARNING: component {i + 1} not watertight -- attempting repair")
             comp.fill_holes()
             comp.fix_normals()
         if not comp.is_watertight:
-            print(f"    SKIP component {i + 1} (still open after repair)")
+            open_components.append(i + 1)
             continue
         mans.append(manifold_from_trimesh(comp))
+    if open_components:
+        raise RuntimeError(
+            f"{len(open_components)} of {len(components)} {label} component(s) "
+            f"{open_components} "
+            f"are not watertight after repair, so their grooves would be missing "
+            f"from the shell:\n    {stl_path}\n  Re-run the leads step (e.g. higher "
+            f"cs_blend_rings / junction_rigid_steps) before carving the shell.")
     if not mans:
-        print("  WARNING: no watertight lead components -- skipping lead subtractors")
+        raise RuntimeError(f"no {label} component found in:\n    {stl_path}")
     return mans
 
 
@@ -336,6 +347,8 @@ def peel_inner_skin(result_man, inner_cyl, label, skin_m):
 def warn_wire_radial_mismatch(cfg: Config, wire_stl: str, tol_m: float = 0.0003):
     """Log a warning when measured wire radial extent deviates from analytical."""
     if not os.path.isfile(wire_stl):
+        print(f"  WARNING: wire STL not found -- skipping radial check:\n"
+              f"    {wire_stl}")
         return
     rot_axis = cfg.cylinder.rot_axis
     rot_angle = cfg.cylinder.rot_angle
@@ -397,6 +410,9 @@ def load_fusion_half_mesh(stl_path, fusion_dims, align_axial_center,
         print("      WARNING: Fusion mesh is NOT watertight. Attempting repair...")
         tm.fill_holes()
         tm.fix_normals()
+        if not tm.is_watertight:
+            print(f"      WARNING: {os.path.basename(stl_path)} is still not "
+                  f"watertight after repair -- the boolean subtraction may fail.")
 
     verts = np.asarray(tm.vertices, dtype=np.float64) * 0.001
     tm_m = trimesh.Trimesh(vertices=verts, faces=tm.faces.copy(), process=False)
@@ -873,6 +889,10 @@ def run_shell(
     out_paths = []
     for label, result_manifold in results:
         result_tm = trimesh_from_manifold(result_manifold)
+        if result_tm.bounds is None or len(result_tm.vertices) == 0:
+            raise RuntimeError(
+                f"empty mesh for {'shell' if auto_mode else 'half ' + label.upper()}"
+                f" -- boolean subtract failed")
         if export_mm:
             result_tm.vertices *= 1000.0
 
@@ -891,12 +911,9 @@ def run_shell(
         print(f"      Vertices     : {len(result_tm.vertices)}")
         print(f"      Faces        : {len(result_tm.faces)}")
         print(f"      Watertight   : {result_tm.is_watertight}")
-        if bb is not None and len(result_tm.vertices) > 0:
-            print(f"      Bounding box : [{bb[0][0]:.2f}, {bb[0][1]:.2f}, "
-                  f"{bb[0][2]:.2f}] --> [{bb[1][0]:.2f}, {bb[1][1]:.2f}, "
-                  f"{bb[1][2]:.2f}] ({unit})")
-        else:
-            raise RuntimeError("empty mesh -- boolean subtract failed")
+        print(f"      Bounding box : [{bb[0][0]:.2f}, {bb[0][1]:.2f}, "
+              f"{bb[0][2]:.2f}] --> [{bb[1][0]:.2f}, {bb[1][1]:.2f}, "
+              f"{bb[1][2]:.2f}] ({unit})")
         print(f"      File         : {out_path}")
         print(f"      Size         : {os.path.getsize(out_path) / 1024 / 1024:.1f} MB")
         print()
