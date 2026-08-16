@@ -47,7 +47,6 @@ pruebas/
   run_gui.py            # launches the GUI
   assets/
     shells/                 # printable shell halves (g_1a/b, g_2a/b, g_3a/b)
-    CoilGen_MatLab/                # read-only MATLAB reference (script_belen_santi.m)
   resultados/            # outputs (gitignored)
   obsolete/              # superseded experiments
     _pre_consolidation/  # the former pipeline/ pipeline_gz/ standalone/ + output_utils.py

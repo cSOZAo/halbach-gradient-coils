@@ -8,4 +8,4 @@ Superseded scripts kept for reference. Do not use for the active mold workflow.
 - `CodigosGitLabOSI/` — golden-angle gradient ports
 - `_backup*` — local snapshots
 
-Active workflow: `../standalone/` or `../pipeline/`.
+Active workflow: coilgen/ (or run_pipeline.py / GUI)
