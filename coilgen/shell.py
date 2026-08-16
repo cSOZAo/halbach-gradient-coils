@@ -16,7 +16,6 @@ Dependencies: numpy, trimesh, manifold3d, scikit-image (for marching cubes).
 from __future__ import annotations
 
 import os
-import re
 import time
 from types import SimpleNamespace
 
@@ -27,7 +26,8 @@ import manifold3d as m3d
 
 from . import geometry as geo
 from .config import Config, apply_custom_shell_dims
-from .paths import unique_path, derive_align_wire_path, resolve_lead_stl_paths
+from .paths import (unique_path, derive_align_wire_path, resolve_lead_stl_paths,
+                    strip_with_leads_suffix)
 
 
 _P = SimpleNamespace()
@@ -163,6 +163,28 @@ def print_wire_dims(dims, label):
     print(f"    {label} axial centre    : {dims['axial_center']*1000:.2f} mm")
 
 
+def load_subtractor_mesh(stl_path, expansion, label):
+    """Load a subtractor STL and apply the per-side groove expansion."""
+    print(f"  Loading {label}: {stl_path}", flush=True)
+    wire_tm = trimesh.load(stl_path)
+    if expansion > 0:
+        print(f"  Fattening {label} by {expansion * 1000:.2f} mm (per side)...")
+        wire_tm = expand_wire_mesh(wire_tm, expansion)
+    return wire_tm
+
+
+def subtractor_manifold(wire_tm, axis, label):
+    """Convert a subtractor mesh to a manifold, voxel-remeshing when enabled."""
+    if _P.resolve_self_intersections:
+        print(f"  WARNING: voxel remesh enabled for {label} -- grooves may look blocky.")
+        print("  Resolving self-intersections (slabbed voxel pass)...")
+        t_vox = time.perf_counter()
+        wire_man = resolve_self_intersections_slabbed(wire_tm, axis, _P.voxel_pitch)
+        print(f"  Voxel union ready ({time.perf_counter() - t_vox:.1f} s)", flush=True)
+        return wire_man
+    return manifold_from_trimesh(wire_tm)
+
+
 def prepare_wire_manifold(stl_path, expansion, axis, label='wire'):
     print(f"  Loading {label}: {stl_path}", flush=True)
     wire_tm = trimesh.load(stl_path)
@@ -178,15 +200,7 @@ def prepare_wire_manifold(stl_path, expansion, axis, label='wire'):
         print(f"  Fattening {label} by {expansion * 1000:.2f} mm (per side)...")
         wire_tm = expand_wire_mesh(wire_tm, expansion)
 
-    if _P.resolve_self_intersections:
-        print(f"  WARNING: voxel remesh enabled for {label} -- grooves may look blocky.")
-        print("  Resolving self-intersections (slabbed voxel pass)...")
-        t_vox = time.perf_counter()
-        wire_man = resolve_self_intersections_slabbed(wire_tm, axis, _P.voxel_pitch)
-        print(f"  Voxel union ready ({time.perf_counter() - t_vox:.1f} s)", flush=True)
-        return wire_man
-
-    return manifold_from_trimesh(wire_tm)
+    return subtractor_manifold(wire_tm, axis, label)
 
 
 def prepare_open_coil_manifold(stl_path, expansion, axis, label='coil_open'):
@@ -202,22 +216,12 @@ def prepare_open_coil_manifold(stl_path, expansion, axis, label='coil_open'):
     if expansion > 0:
         print(f"  Fattening {label} by {expansion * 1000:.2f} mm (per side)...")
         wire_tm = expand_wire_mesh(wire_tm, expansion)
-    if _P.resolve_self_intersections:
-        print(f"  WARNING: voxel remesh enabled for {label} -- grooves may look blocky.")
-        t_vox = time.perf_counter()
-        wire_man = resolve_self_intersections_slabbed(wire_tm, axis, _P.voxel_pitch)
-        print(f"  Voxel union ready ({time.perf_counter() - t_vox:.1f} s)", flush=True)
-        return wire_man
-    return manifold_from_trimesh(wire_tm)
+    return subtractor_manifold(wire_tm, axis, label)
 
 
 def prepare_lead_components(stl_path, expansion, label='leads'):
     """Load leads STL and return one manifold per connected component."""
-    print(f"  Loading {label}: {stl_path}", flush=True)
-    wire_tm = trimesh.load(stl_path)
-    if expansion > 0:
-        print(f"  Fattening {label} by {expansion * 1000:.2f} mm (per side)...")
-        wire_tm = expand_wire_mesh(wire_tm, expansion)
+    wire_tm = load_subtractor_mesh(stl_path, expansion, label)
     components = wire_tm.split(only_watertight=False)
     print(f"  {label}: {len(components)} component(s), "
           f"{sum(len(c.faces) for c in components)} faces total")
@@ -263,11 +267,9 @@ def pad_shell_outer(mesh_tm, fusion_dims, axis_hat, pad_m):
     """Push outer-wall vertices radially outward by *pad_m*."""
     if pad_m <= 0:
         return mesh_tm
-    axis_hat = np.asarray(axis_hat, dtype=float)
-    axis_hat /= np.linalg.norm(axis_hat)
+    axis_hat = geo.unit_vector(axis_hat)
     v = np.asarray(mesh_tm.vertices, dtype=float)
-    axial = v @ axis_hat
-    radial = v - np.outer(axial, axis_hat)
+    radial = geo.radial_vec(v, axis_hat)
     r = np.linalg.norm(radial, axis=1)
     mid_r = 0.5 * (fusion_dims['inner_r_m'] + fusion_dims['outer_r_m'])
     near_outer = r >= mid_r
@@ -277,32 +279,38 @@ def pad_shell_outer(mesh_tm, fusion_dims, axis_hat, pad_m):
     return trimesh.Trimesh(vertices=v_new, faces=mesh_tm.faces.copy(), process=False)
 
 
+def align_to_bore(manifold, rot_axis, rot_angle, axial_center=0.0):
+    """Rotate a +Z manifold onto the bore axis and shift it to *axial_center*."""
+    R = geo.rodrigues_rotation_matrix(rot_axis, rot_angle)
+    axis_hat = R @ np.array([0.0, 0.0, 1.0])
+    return manifold.transform(geo.rigid_transform_matrix(R, axial_center * axis_hat))
+
+
+def build_bore_cylinder(radius, height, rot_axis, rot_angle, axial_center=0.0):
+    """Solid cylinder of *radius* / *height* aligned with the bore axis."""
+    m3d.set_circular_segments(_P.circular_segments)
+    cyl = m3d.Manifold.cylinder(height, radius, center=True)
+    return align_to_bore(cyl, rot_axis, rot_angle, axial_center)
+
+
 def build_radius_limiter(fusion_dims, align_axial_center, trim_m,
                          rot_axis, rot_angle):
     """Solid cylinder r = outer_r - trim, aligned with the Fusion shell."""
-    outer_r = fusion_dims['outer_r_m'] - trim_m
-    height = fusion_dims['axial_length_m'] + 0.002
-    m3d.set_circular_segments(_P.circular_segments)
-    cyl = m3d.Manifold.cylinder(height, outer_r, center=True)
-    R = geo.rodrigues_rotation_matrix(rot_axis, rot_angle)
-    axis_hat = R @ np.array([0.0, 0.0, 1.0])
-    T = np.zeros((3, 4), dtype=np.float64)
-    T[:3, :3] = R
-    T[:3, 3] = align_axial_center * axis_hat
-    return cyl.transform(T)
+    return build_bore_cylinder(
+        fusion_dims['outer_r_m'] - trim_m,
+        fusion_dims['axial_length_m'] + 0.002,
+        rot_axis, rot_angle, align_axial_center,
+    )
 
 
 def build_auto_outer_limiter(cfg: Config, align_dims: dict,
                              rot_axis, rot_angle):
     """Solid cylinder R = final outer radius X (clips padded shell)."""
-    outer_r = cfg.cylinder.radius
-    height = float(cfg.cylinder.height) + 0.002
-    m3d.set_circular_segments(_P.circular_segments)
-    cyl = m3d.Manifold.cylinder(height, outer_r, center=True)
-    R = geo.rodrigues_rotation_matrix(rot_axis, rot_angle)
-    T = np.zeros((3, 4), dtype=np.float64)
-    T[:3, :3] = R
-    return cyl.transform(T)
+    return build_bore_cylinder(
+        cfg.cylinder.radius,
+        float(cfg.cylinder.height) + 0.002,
+        rot_axis, rot_angle,
+    )
 
 
 def build_auto_radius_limiter(cfg: Config, align_dims: dict,
@@ -314,14 +322,11 @@ def build_auto_radius_limiter(cfg: Config, align_dims: dict,
 def build_auto_inner_peel_cylinder(cfg: Config, align_dims: dict,
                                    rot_axis, rot_angle):
     """Solid cylinder R = opened inner bore; subtract to peel inner radial trim."""
-    inner_r = cfg.shell_build_inner_radius + cfg.radial_peel
-    height = float(cfg.cylinder.height) + 0.002
-    m3d.set_circular_segments(_P.circular_segments)
-    cyl = m3d.Manifold.cylinder(height, inner_r, center=True)
-    R = geo.rodrigues_rotation_matrix(rot_axis, rot_angle)
-    T = np.zeros((3, 4), dtype=np.float64)
-    T[:3, :3] = R
-    return cyl.transform(T)
+    return build_bore_cylinder(
+        cfg.shell_build_inner_radius + cfg.radial_peel,
+        float(cfg.cylinder.height) + 0.002,
+        rot_axis, rot_angle,
+    )
 
 
 def peel_inner_skin(result_man, inner_cyl, label, skin_m):
@@ -422,23 +427,19 @@ def load_fusion_half_mesh(stl_path, fusion_dims, align_axial_center,
           f"{tm_final.bounds[1][2]:.4f}]")
 
     axis = geo.rotated_cylinder_axis(rot_axis, rot_angle)
-    v = tm_final.vertices
-    axial_coords = v @ axis
-    axial_proj = np.outer(axial_coords, axis)
-    radial_vecs = v - axial_proj
-    radii = np.linalg.norm(radial_vecs, axis=1)
-    print(f"      Shell radial range : {radii.min()*1000:.2f} -- "
-          f"{radii.max()*1000:.2f} mm")
-    print(f"      Shell axial range  : {axial_coords.min()*1000:.1f} -- "
-          f"{axial_coords.max()*1000:.1f} mm")
+    extent = geo.cylindrical_extent(tm_final.vertices, axis)
+    print(f"      Shell radial range : {extent['inner_r']*1000:.2f} -- "
+          f"{extent['outer_r']*1000:.2f} mm")
+    print(f"      Shell axial range  : {extent['axial_min']*1000:.1f} -- "
+          f"{extent['axial_max']*1000:.1f} mm")
 
     return tm_final
 
 
 def shell_output_base(subtract_path):
     """Stable output stem: strip _with_leads so names read ..._shell_g2a.stl."""
-    wire_base = os.path.splitext(os.path.basename(subtract_path))[0]
-    wire_base = re.sub(r'_with_leads(?:\(\d+\))?$', '', wire_base)
+    wire_base = strip_with_leads_suffix(
+        os.path.splitext(os.path.basename(subtract_path))[0])
     if 'wire' in wire_base:
         return wire_base.replace('wire', 'shell')
     return wire_base + '_shell'
@@ -537,12 +538,7 @@ def build_auto_hollow_cylinder(cfg: Config, wire_stl: str) -> "m3d.Manifold":
     inner = m3d.Manifold.cylinder(cyl_length + eps, cyl_inner_r, center=True)
     tube = outer - inner
 
-    R = geo.rodrigues_rotation_matrix(rot_axis, rot_angle)
-    axis_hat = R @ np.array([0.0, 0.0, 1.0])
-    T = np.zeros((3, 4), dtype=np.float64)
-    T[:3, :3] = R
-    T[:3, 3] = axial_center * axis_hat
-    return tube.transform(T)
+    return align_to_bore(tube, rot_axis, rot_angle, axial_center)
 
 
 def run_shell(
@@ -578,7 +574,7 @@ def run_shell(
 
     align_path = os.path.normpath(align_wire_stl or derive_align_wire_path(subtract_path))
     stem_base, ext = os.path.splitext(subtract_path)
-    stem_base = re.sub(r'_with_leads(?:\(\d+\))?$', '', stem_base)
+    stem_base = strip_with_leads_suffix(stem_base)
     leads_path = os.path.normpath(
         leads_wire_stl if leads_wire_stl is not None else stem_base + '_leads_only' + ext)
     coil_open_path = os.path.normpath(stem_base + '_coil_open' + ext)

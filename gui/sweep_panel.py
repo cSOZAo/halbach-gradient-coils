@@ -10,23 +10,18 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import messagebox, ttk
-from typing import Optional
 
 from coilgen.config import Config
 from coilgen import sweep as sweep_mod
 from .runner import WorkerRunner
 from .units import mm_to_m
+from .widgets import (
+    PanelBase, attach_vscrollbar, build_log_box, build_run_bar,
+    require_output_dir, show_failure, show_invalid_params,
+)
 
 
-class SweepPanel(ttk.Frame):
-    def __init__(self, master, get_output_dir, set_output_dir, root):
-        super().__init__(master)
-        self.get_output_dir = get_output_dir
-        self.set_output_dir = set_output_dir
-        self.root = root
-        self.runner: Optional[WorkerRunner] = None
-        self._build()
-
+class SweepPanel(PanelBase):
     def _build(self):
         form = ttk.LabelFrame(self, text="Barrido Tikhonov", padding=10)
         form.pack(fill='x', padx=8, pady=6)
@@ -62,11 +57,7 @@ class SweepPanel(ttk.Frame):
 
         self._fill_defaults()
 
-        bar = ttk.Frame(self)
-        bar.pack(fill='x', padx=8, pady=4)
-        ttk.Button(bar, text="Correr barrido", command=self._on_run).pack(side='left')
-        self.progress = ttk.Progressbar(bar, mode='determinate', maximum=100, length=300)
-        self.progress.pack(side='left', padx=10)
+        self.progress = build_run_bar(self, "Correr barrido", self._on_run)
 
         # Results table
         res = ttk.LabelFrame(self, text="Resultados", padding=4)
@@ -76,18 +67,9 @@ class SweepPanel(ttk.Frame):
         for c, w in zip(cols, (60, 90, 110, 90, 110)):
             self.tree.heading(c, text=c)
             self.tree.column(c, width=w, anchor='e')
-        self.tree.pack(side='left', fill='both', expand=True)
-        sb = ttk.Scrollbar(res, command=self.tree.yview)
-        sb.pack(side='right', fill='y')
-        self.tree.configure(yscrollcommand=sb.set)
+        attach_vscrollbar(res, self.tree)
 
-        log_frame = ttk.LabelFrame(self, text="Log", padding=4)
-        log_frame.pack(fill='both', expand=True, padx=8, pady=4)
-        self.log_text = tk.Text(log_frame, height=8, wrap='word')
-        self.log_text.pack(side='left', fill='both', expand=True)
-        lsb = ttk.Scrollbar(log_frame, command=self.log_text.yview)
-        lsb.pack(side='right', fill='y')
-        self.log_text.configure(yscrollcommand=lsb.set)
+        self.log_text = build_log_box(self, height=8)
 
         self.runner = WorkerRunner(self.log_text, self.progress, self.root)
 
@@ -99,10 +81,8 @@ class SweepPanel(ttk.Frame):
         self.n_coarse_var.set(str(d_n))
 
     def _on_run(self):
-        out_dir = self.get_output_dir()
+        out_dir = require_output_dir(self.get_output_dir)
         if not out_dir:
-            messagebox.showwarning("Falta directorio",
-                                   "Seleccione un directorio de salida primero.")
             return
         try:
             cfg = Config(gradient_axis=self.axis_var.get(),
@@ -112,7 +92,7 @@ class SweepPanel(ttk.Frame):
             cfg.cylinder.height = mm_to_m(self.height_var.get())
             cfg.sweep.fine = self.fine_var.get()
         except (ValueError, KeyError) as exc:
-            messagebox.showerror("Parametros invalidos", str(exc))
+            show_invalid_params(exc)
             return
 
         tk_min = float(self.tk_min_var.get())
@@ -142,7 +122,7 @@ class SweepPanel(ttk.Frame):
 
         def _on_done(result, err):
             if err is not None:
-                messagebox.showerror("Barrido", f"Fallo: {err}")
+                show_failure("Barrido", err)
             elif result is not None:
                 bs = result.best_slope
                 be = result.best_error

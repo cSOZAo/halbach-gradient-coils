@@ -5,6 +5,9 @@ Contents
 --------
 - Elementary rotation matrices (rotx / roty / rotz).
 - Rodrigues rotation for the cylinder mesh rotation.
+- ``rigid_transform_matrix``: 3x4 rotation + translation for manifold3d.
+- ``unit_vector`` and the cylindrical (axial / radial) decomposition helpers
+  used by the leads and shell steps.
 - ``internal_field_axis``: physical G{x,y,z} -> pyCoilGen internal axis.
 - ``rotated_cylinder_axis``: bore axis after the R_y(pi/2) mesh rotation.
 - ``build_target_field_file``: spherical target-field .npy for an axis.
@@ -52,6 +55,68 @@ def rodrigues_rotation_matrix(axis, angle) -> np.ndarray:
                   [k[2], 0, -k[0]],
                   [-k[1], k[0], 0]])
     return np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * (K @ K)
+
+
+def rigid_transform_matrix(rotation: np.ndarray, translation=None) -> np.ndarray:
+    """3x4 rigid transform ``[R | t]`` (the layout manifold3d expects)."""
+    T = np.zeros((3, 4), dtype=np.float64)
+    T[:3, :3] = rotation
+    if translation is not None:
+        T[:3, 3] = translation
+    return T
+
+
+# ---------------------------------------------------------------------------
+# Vector / cylindrical decomposition
+# ---------------------------------------------------------------------------
+
+def unit_vector(vec, fallback=None) -> np.ndarray:
+    """Return a normalized vector, or a normalized fallback if degenerate."""
+    v = np.asarray(vec, dtype=float)
+    n = np.linalg.norm(v)
+    if n > 1e-12:
+        return v / n
+    if fallback is None:
+        raise ValueError("Cannot normalize a degenerate vector without fallback.")
+    fb = np.asarray(fallback, dtype=float)
+    fn = np.linalg.norm(fb)
+    if fn < 1e-12:
+        raise ValueError("Fallback vector is also degenerate.")
+    return fb / fn
+
+
+def axial_coord(points, axis_hat):
+    """Axial coordinate(s) along *axis_hat* (scalar for a single point)."""
+    return np.asarray(points) @ axis_hat
+
+
+def radial_vec(points, axis_hat):
+    """Component(s) of *points* perpendicular to *axis_hat*."""
+    pts = np.asarray(points, dtype=float)
+    if pts.ndim == 1:
+        return pts - axial_coord(pts, axis_hat) * axis_hat
+    return pts - np.outer(axial_coord(pts, axis_hat), axis_hat)
+
+
+def radial_norm(points, axis_hat):
+    """Distance(s) of *points* from the axis through the origin."""
+    return np.linalg.norm(radial_vec(points, axis_hat), axis=-1)
+
+
+def cylindrical_extent(points, axis_hat) -> Dict[str, float]:
+    """Axial span and radial range of *points* about *axis_hat* [same units]."""
+    axial = axial_coord(np.asarray(points, dtype=np.float64), axis_hat)
+    radii = radial_norm(points, axis_hat)
+    axial_min = float(axial.min())
+    axial_max = float(axial.max())
+    return {
+        'inner_r': float(radii.min()),
+        'outer_r': float(radii.max()),
+        'axial_min': axial_min,
+        'axial_max': axial_max,
+        'axial_center': 0.5 * (axial_min + axial_max),
+        'axial_extent': axial_max - axial_min,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -177,21 +242,9 @@ def measure_wire_dims(stl_path: str,
     """Axial and radial extent of a wire STL in the pyCoilGen frame [m]."""
     axis = rotated_cylinder_axis(rot_axis, rot_angle)
     tm = trimesh.load(stl_path)
-    v = np.asarray(tm.vertices, dtype=np.float64)
-    axial_coords = v @ axis
-    axial_proj = np.outer(axial_coords, axis)
-    radial_vecs = v - axial_proj
-    radii = np.linalg.norm(radial_vecs, axis=1)
-
-    return {
-        'inner_r': float(radii.min()),
-        'outer_r': float(radii.max()),
-        'axial_min': float(axial_coords.min()),
-        'axial_max': float(axial_coords.max()),
-        'axial_center': float((axial_coords.min() + axial_coords.max()) / 2.0),
-        'axial_extent': float(axial_coords.max() - axial_coords.min()),
-        'path': stl_path,
-    }
+    dims = cylindrical_extent(np.asarray(tm.vertices, dtype=np.float64), axis)
+    dims['path'] = stl_path
+    return dims
 
 
 def format_dims_mm(dims: Dict[str, float], prefix: str = '') -> str:

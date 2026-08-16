@@ -27,6 +27,7 @@ from typing import Callable, List, Optional
 import numpy as np
 
 from .config import Config
+from .formatting import fmt_value
 from .gradient import run_gradient
 from .paths import unique_run_dir
 
@@ -71,17 +72,6 @@ def _row_from_metrics(tk: float, phase: str, metrics: dict) -> dict:
     }
 
 
-def _fmt_val(v, fmt='.6g'):
-    if v is None:
-        return 'n/a'
-    try:
-        if isinstance(v, float) and not np.isfinite(v):
-            return 'n/a'
-        return format(v, fmt)
-    except (TypeError, ValueError):
-        return str(v)
-
-
 def _write_csv(path: str, rows: List[dict]) -> None:
     if not rows:
         return
@@ -103,19 +93,19 @@ def _write_txt(path: str, cfg: Config, rows: List[dict],
         fh.write("Fase\tTikhonov\tPendiente[mT/(m.A)]\tErrorMedio[%]\tRMSE/range\n")
         for r in rows:
             fh.write(f"{r['Fase']}\t{r['Tikhonov']}\t"
-                     f"{_fmt_val(r['Pendiente_mT_per_m_per_A'])}\t"
-                     f"{_fmt_val(r['Error_Medio_pct'])}\t"
-                     f"{_fmt_val(r['RMSE_per_range_mT_per_m_per_A'])}\n")
+                     f"{fmt_value(r['Pendiente_mT_per_m_per_A'])}\t"
+                     f"{fmt_value(r['Error_Medio_pct'])}\t"
+                     f"{fmt_value(r['RMSE_per_range_mT_per_m_per_A'])}\n")
         fh.write("-" * 70 + "\n")
         fh.write(f"[*] MEJOR PENDIENTE ABSOLUTA:\n"
                  f"    Tikhonov = {best_slope['Tikhonov']} "
                  f"(Fase: {best_slope['Fase']})\n"
-                 f"    Pendiente = {_fmt_val(best_slope['Pendiente_mT_per_m_per_A'])} "
+                 f"    Pendiente = {fmt_value(best_slope['Pendiente_mT_per_m_per_A'])} "
                  f"mT/(m.A)\n\n")
         fh.write(f"[*] MENOR ERROR MEDIO vs CAMPO OBJETIVO:\n"
                  f"    Tikhonov = {best_error['Tikhonov']} "
                  f"(Fase: {best_error['Fase']})\n"
-                 f"    Error = {_fmt_val(best_error['Error_Medio_pct'])} %\n")
+                 f"    Error = {fmt_value(best_error['Error_Medio_pct'])} %\n")
 
 
 def _run_one(cfg: Config, tk: float, base_dir: str, phase: str,
@@ -243,9 +233,9 @@ def run_tikhonov_sweep(
 
     print(f"\n  Resumen guardado en: {axis_dir}")
     print(f"  Mejor pendiente: tk={best_slope['Tikhonov']} "
-          f"({_fmt_val(best_slope['Pendiente_mT_per_m_per_A'])} mT/(m.A))")
+          f"({fmt_value(best_slope['Pendiente_mT_per_m_per_A'])} mT/(m.A))")
     print(f"  Menor error:     tk={best_error['Tikhonov']} "
-          f"({_fmt_val(best_error['Error_Medio_pct'])} %)")
+          f"({fmt_value(best_error['Error_Medio_pct'])} %)")
 
     return SweepResult(
         axis=axis, rows=rows, csv_path=csv_path, txt_path=txt_path,
