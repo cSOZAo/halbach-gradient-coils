@@ -1,8 +1,8 @@
-# Gradient coils — Halbach low-field MRI (pyCoilGen)
+# Gradient coils — Halbach-based low-field MRI (pyCoilGen)
 
 Design of gradient coils (Gx, Gy, Gz) for a Halbach-based low-field MRI scanner,
 built on top of **pyCoilGen**. The project takes a pyCoilGen wire layout, adds
-lead wires, and carves the wire grooves into printable Fusion 360 shell halves
+lead wires, and carves the wire grooves into STL shell cilinder or halves
 to produce a negative mold for winding.
 
 Everything is driven by a single config object (`coilgen/config.py`) and exposed
@@ -10,7 +10,7 @@ through a Tkinter GUI and a CLI.
 
 ---
 
-## Hardware constraint (read before touching physics)
+## Hardware constraint
 
 - Scanner **B0 is parallel to +Y** (transverse to the bore).
 - Gradient fields must be oriented along **Y** as well (the relevant component
@@ -38,6 +38,7 @@ pruebas/
     shell.py            # run_shell(cfg, with_leads_stl) -> shell halves
     sweep.py            # run_tikhonov_sweep(cfg, ...) -> SweepResult
   gui/                  # Tkinter GUI
+    units.py            # GUI mm <-> SI metres conversion helpers
     main_window.py      # mode selector + shared output-dir field
     pipeline_panel.py   # full pipeline tab
     standalone_panel.py # single-step tab (wire / leads / shell)
@@ -45,9 +46,9 @@ pruebas/
     runner.py           # worker thread + log redirection
   run_pipeline.py       # CLI: full pipeline
   run_gui.py            # launches the GUI
+  requirements.txt      # Python dependencies
   assets/
-    shells/                 # printable shell halves (g_1a/b, g_2a/b, g_3a/b)
-  resultados/            # outputs (gitignored)
+    shells/              # printable shell halves (g_1a/b, g_2a/b, g_3a/b)
   obsolete/              # superseded experiments
     _pre_consolidation/  # the former pipeline/ pipeline_gz/ standalone/ + output_utils.py
                          # (kept pending end-to-end validation of coilgen/; safe to delete
