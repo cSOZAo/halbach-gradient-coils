@@ -31,6 +31,7 @@ halbach-gradient-coils/
 ├── pyCoilGen/              # vendored coil-layout engine
 ├── data/                   # runtime data searched by pyCoilGen
 ├── tests/                  # automated regression tests for pyCoilGen
+├── GradientDesign.bat      # Windows one-click setup and GUI launcher
 ├── requirements-project.txt
 └── pyproject.toml
 ```
@@ -60,6 +61,25 @@ When modifying geometry, target fields, or field metrics, document which frame e
 Python 3.14 is not the baseline for this codebase. Dependency upgrades and Python-modernisation work should be done in a separate branch after preserving the current validated behaviour.
 
 ## Installation
+
+### One-click setup and launch on Windows
+
+Install 64-bit Python **3.11** first, then clone or extract the complete
+repository. Double-click `GradientDesign.bat` in the repository root.
+
+On its first run, the launcher:
+
+1. Checks that Python 3.11 is available through the Windows Python Launcher.
+2. Creates or repairs `.venv`.
+3. Installs and verifies every dependency in `requirements-project.txt`.
+4. Opens the GUI.
+
+Later launches skip installation when the environment passes its dependency
+check and open the GUI directly. If setup fails, the window remains open with
+the error and the next launch retries it. The launcher never installs Python
+itself or modifies a global Python environment.
+
+### Manual installation
 
 From the repository root:
 

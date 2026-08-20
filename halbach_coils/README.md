@@ -2,6 +2,10 @@
 
 The runnable Halbach-specific application lives in this directory. Its project-level documentation, installation instructions, coordinate conventions, and workflow are maintained in the repository [README](../README.md).
 
+For the normal Windows workflow, double-click `GradientDesign.bat` in the
+repository root. It performs the first-run setup and uses the existing virtual
+environment on later launches.
+
 From the repository root, run entry points with the project's virtual
 environment. This prevents accidentally using a global Python without the
 project dependencies:
