@@ -159,4 +159,4 @@ The local engine is intentionally part of this repository because the Halbach wo
 
 ## Project history
 
-The Halbach application was previously stored in a folder named `pruebas/` and versioned separately from `pyCoilGen`. The `migration/monorepo` branch introduces the self-contained layout above while preserving the previous Git history. Review and merge that branch before using this structure as the default `main` branch.
+The Halbach application was previously stored in a folder named `pruebas/` and versioned separately from `pyCoilGen`. The current self-contained layout preserves that Git history while making a fresh clone directly installable.
