@@ -5,10 +5,10 @@ Runs (optionally) pyCoilGen, adds lead wires, and carves the Fusion 360 shell
 halves -- all driven by a single :class:`coilgen.config.Config`.
 
 Usage:
-    python run_pipeline.py                       # Gy defaults
-    python run_pipeline.py --axis z --tikhonov 10000 --layer 3
-    python run_pipeline.py --skip-gradient       # re-use a previous wire STL
-    python run_pipeline.py --skip-leads --skip-shell
+    .\.venv\Scripts\python.exe halbach_coils\run_pipeline.py                       # Gy defaults
+    .\.venv\Scripts\python.exe halbach_coils\run_pipeline.py --axis z --tikhonov 10000 --layer 3
+    .\.venv\Scripts\python.exe halbach_coils\run_pipeline.py --skip-gradient       # re-use a previous wire STL
+    .\.venv\Scripts\python.exe halbach_coils\run_pipeline.py --skip-leads --skip-shell
 
 Outputs go to ``resultados/pipeline/G{axis}_tk{N}_lvl{M}/`` (or ``...(2)`` on
 re-run). Each full run gets its own subfolder.

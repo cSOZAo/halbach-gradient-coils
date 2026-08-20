@@ -1,5 +1,12 @@
-# Install the local pyCoilGen package and the Halbach application dependencies.
+# Install the local pyCoilGen package and all runtime dependencies for the
+# Halbach application.  Some of these are optional extras in trimesh, but the
+# pipeline uses them directly (they must not be left to a transitive install).
 -e .
 manifold3d==3.5.2
+networkx==3.4.2
 pandas==3.0.5
+rtree==1.4.1
+scikit-image==0.24.0
+
+# Test runner used by the installation verification step in the README.
 pytest==9.1.1

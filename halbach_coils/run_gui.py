@@ -1,7 +1,7 @@
 """
 Launch the pyCoilGen Tkinter GUI.
 
-    python run_gui.py
+    .\.venv\Scripts\python.exe halbach_coils\run_gui.py
 """
 
 from __future__ import annotations

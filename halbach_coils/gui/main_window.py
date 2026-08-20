@@ -2,7 +2,8 @@
 Main GUI window — mode selector (Pipeline / Standalone / Barrido Tikhonov)
 plus a shared output-directory field that every panel uses.
 
-Run with ``python run_gui.py``.
+From the repository root, run with
+``.\\.venv\\Scripts\\python.exe halbach_coils\\run_gui.py``.
 """
 
 from __future__ import annotations

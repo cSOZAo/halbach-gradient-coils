@@ -47,6 +47,12 @@ dependencies = [
     "sympy==1.*",
     "pillow<=9.5",
     "matplotlib==3.*",
+    # These trimesh extras are required by the application at runtime:
+    # split() uses networkx; spatial queries use rtree; voxel remeshing uses
+    # scikit-image's marching-cubes implementation.
+    "networkx==3.*",
+    "rtree==1.*",
+    "scikit-image>=0.24,<0.25",
 ]
 dynamic = ["version", "description"]
 

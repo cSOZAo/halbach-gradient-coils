@@ -65,28 +65,47 @@ From the repository root:
 
 ```powershell
 py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements-project.txt
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements-project.txt
 ```
 
-`requirements-project.txt` installs the local `pyCoilGen` package in editable mode and adds the Halbach-specific runtime packages (`manifold3d` and `pandas`) plus `pytest` for verification.
+`requirements-project.txt` installs the local `pyCoilGen` package in editable mode and all application dependencies. This includes `networkx`, `rtree`, and `scikit-image`: they are optional `trimesh` extras, but this pipeline uses them for mesh component splitting, spatial queries, and voxel remeshing respectively. `pytest` is included for verification.
+
+The commands deliberately call `.\.venv\Scripts\python.exe` directly. This
+avoids relying on PowerShell activation or on whichever global `python` happens
+to be on the system PATH.
+
+### Resetting the virtual environment
+
+From the repository root, close the GUI and any terminals or Python processes using the environment. Then run the following in a new PowerShell window. It removes only the repository's `.venv` directory and recreates it from the declared dependencies:
+
+```powershell
+Remove-Item -LiteralPath .venv -Recurse -Force
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements-project.txt
+```
+
+If `Remove-Item` reports that a file is in use, close the process named in the message and rerun the command. Do not delete the repository root—only `.venv`.
 
 To confirm the installation:
 
 ```powershell
-python -m pytest -q
+.\.venv\Scripts\python.exe -c "import networkx, rtree; from skimage import measure; import trimesh; print('Runtime dependencies OK')"
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 The current baseline is 56 passing tests. Two deprecation warnings from SciPy's MATLAB reader are expected and do not fail the suite.
 
 ## Running the application
 
-Run the application commands from `halbach_coils/`:
+Run the application commands from the repository root. Always use the virtual
+environment executable so the GUI cannot start with a global Python missing the
+project dependencies:
 
 ```powershell
-cd halbach_coils
-python run_gui.py
+.\.venv\Scripts\python.exe halbach_coils\run_gui.py
 ```
 
 The GUI has three modes:
@@ -98,9 +117,8 @@ The GUI has three modes:
 For a non-interactive run:
 
 ```powershell
-cd halbach_coils
-python run_pipeline.py --axis y --tikhonov 2500 --levels 26 --layer 2
-python run_pipeline.py --axis z --tikhonov 10000 --layer 3
+.\.venv\Scripts\python.exe halbach_coils\run_pipeline.py --axis y --tikhonov 2500 --levels 26 --layer 2
+.\.venv\Scripts\python.exe halbach_coils\run_pipeline.py --axis z --tikhonov 10000 --layer 3
 ```
 
 Useful options include:
