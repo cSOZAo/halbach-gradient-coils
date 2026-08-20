@@ -35,6 +35,10 @@ Zc*.mat
 # Output files in top directory
 *.stl
 
+# Minimal pyCoilGen geometry fixtures required by the regression suite
+!data/pyCoilGenData/Geometry_Data/bi_planer_rectangles_width_1000mm_distance_500mm.stl
+!data/pyCoilGenData/Geometry_Data/cylinder_radius500mm_length1500mm.stl
+
 ChatGPT*.html
 ChatGPT*.txt
 
