@@ -67,7 +67,10 @@ def calculate_inductance_by_coil_layout(solution: CoilSolution, input_args) -> C
             coil_part.coil_cross_section = 0
 
         sim_freq = 1
-        material_conductivity = 5.8e7
+        # ``specific_conductivity_conductor`` is a legacy/misleading name:
+        # pyCoilGen uses it as electrical resistivity [ohm.m].  FastHenry
+        # expects conductivity [S/m], so convert instead of assuming copper.
+        material_conductivity = 1.0 / input_args.specific_conductivity_conductor
 
         # Check if FastHenry2 is installed
         if os.path.isfile(fasthenry_bin):

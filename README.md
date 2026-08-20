@@ -163,6 +163,11 @@ applied immediately and intentionally starts from English on every launch.
 All dimensions entered in the GUI are millimetres. The application converts
 them to metres for `Config` and `pyCoilGen` internally.
 
+The Pipeline panel also lets you select Cu, Al, or Ag conductor material. It
+fills the corresponding room-temperature resistivity in ohm.m; choose
+**Custom** to enter a different material or temperature-adjusted value. The
+resistivity is used by both pyCoilGen's ohmic estimate and FastHenry.
+
 The GUI has three modes:
 
 - **Pipeline** runs gradient generation, lead creation, and shell cutting in

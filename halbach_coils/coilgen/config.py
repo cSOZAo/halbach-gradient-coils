@@ -30,6 +30,16 @@ from . import geometry as geo
 from . import paths as _paths
 
 
+# Electrical resistivity at approximately 20 °C [ohm.m].  pyCoilGen's
+# historical argument is named ``specific_conductivity_conductor``, but its
+# resistance calculations use the value as resistivity (R = rho L / A).
+CONDUCTOR_MATERIAL_RESISTIVITY = {
+    'Cu': 1.68e-8,
+    'Al': 2.82e-8,
+    'Ag': 1.59e-8,
+}
+
+
 # ---------------------------------------------------------------------------
 # Per-axis lead presets (resolves the non-Gy leads bug).
 # ---------------------------------------------------------------------------
@@ -127,7 +137,8 @@ class WindingConfig:
 class FastHenryConfig:
     enabled: bool = True
     bin_path: str = ''                         # empty -> resolve via PATH
-    specific_conductivity: float = 1.8e-8      # [ohm.m]
+    material: str = 'Cu'
+    specific_conductivity: float = CONDUCTOR_MATERIAL_RESISTIVITY['Cu']  # resistivity [ohm.m]
 
 
 @dataclass
@@ -574,6 +585,7 @@ class Config:
             'cross_section_a_frac': self.wire.cross_section_a_frac,
             'cross_section_b_frac': self.wire.cross_section_b_frac,
             'enable_fasthenry': self.fasthenry.enabled,
+            'conductor_material': self.fasthenry.material,
             'fasthenry_conductor_width_m': self.fasthenry_conductor_width,
             'fasthenry_conductor_height_m': self.fasthenry_conductor_height,
             'specific_conductivity_conductor_ohm_m': self.fasthenry.specific_conductivity,
