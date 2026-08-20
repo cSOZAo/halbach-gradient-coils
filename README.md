@@ -184,6 +184,11 @@ The GUI has three modes:
   fine range around promising values. It displays the samples and writes CSV
   and text summaries to the selected output directory.
 
+Pipeline configurations can be saved and loaded as versioned JSON presets.
+Each sweep also writes `Sweep_Config.json` beside its CSV: use **Load previous
+CSV...**, select any result row, and choose **Use selected in Pipeline** to
+restore the sweep geometry/material parameters with that row's Tikhonov value.
+
 The log at the bottom of each mode shows progress and the exact failure if a
 run cannot finish. Closing the GUI does not delete generated files.
 

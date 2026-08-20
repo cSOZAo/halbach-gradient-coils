@@ -8,13 +8,17 @@ output directory. Suggested widened range for Gz is pre-filled.
 
 from __future__ import annotations
 
+import copy
+import csv
 import math
+import os
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
 from coilgen.config import CONDUCTOR_MATERIAL_RESISTIVITY, Config
 from coilgen import sweep as sweep_mod
+from coilgen.presets import load_config_preset
 from .runner import WorkerRunner
 from .units import mm_to_m
 
@@ -26,6 +30,8 @@ class SweepPanel(ttk.Frame):
         self.set_output_dir = set_output_dir
         self.root = root
         self.runner: Optional[WorkerRunner] = None
+        self._rows_by_item: dict[str, dict] = {}
+        self._last_sweep_cfg: Optional[Config] = None
         self._build()
 
     def _build(self):
@@ -89,6 +95,10 @@ class SweepPanel(ttk.Frame):
         bar = ttk.Frame(self)
         bar.pack(fill='x', padx=8, pady=4)
         ttk.Button(bar, text="Run sweep", command=self._on_run).pack(side='left')
+        ttk.Button(bar, text="Load previous CSV...",
+                   command=self._load_previous_sweep).pack(side='left', padx=(8, 0))
+        ttk.Button(bar, text="Use selected in Pipeline",
+                   command=self._use_selected).pack(side='left', padx=(8, 0))
         self.progress = ttk.Progressbar(bar, mode='determinate', maximum=100, length=300)
         self.progress.pack(side='left', padx=10)
 
@@ -131,6 +141,69 @@ class SweepPanel(ttk.Frame):
         if resistivity is not None:
             self.resistivity_var.set(f'{resistivity:.3g}')
 
+    @staticmethod
+    def _parse_csv_row(row: dict) -> dict:
+        parsed = dict(row)
+        for key in (
+            'Tikhonov', 'Pendiente_mT_per_m_per_A', 'Error_Medio_pct',
+            'RMSE_per_range_mT_per_m_per_A', 'Wire_length_m',
+        ):
+            parsed[key] = float(parsed[key])
+        return parsed
+
+    def _insert_result_row(self, row: dict) -> None:
+        item = self.tree.insert(
+            '', 'end',
+            values=(row['Fase'], row['Tikhonov'],
+                    f"{row['Pendiente_mT_per_m_per_A']:.4g}",
+                    f"{row['Error_Medio_pct']:.4g}",
+                    f"{row['RMSE_per_range_mT_per_m_per_A']:.4g}"),
+        )
+        self._rows_by_item[item] = row
+
+    def _clear_results(self) -> None:
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        self._rows_by_item.clear()
+
+    def _load_previous_sweep(self):
+        path = filedialog.askopenfilename(
+            title=self.root.tr("Load previous sweep"),
+            filetypes=[("CSV", "*.csv"), (self.root.tr("All files"), "*.*")],
+            parent=self.root,
+        )
+        if not path:
+            return
+        config_path = os.path.join(
+            os.path.dirname(path), sweep_mod.SWEEP_CONFIG_FILENAME)
+        try:
+            cfg = load_config_preset(config_path)
+            with open(path, newline='', encoding='utf-8') as fh:
+                rows = [self._parse_csv_row(row) for row in csv.DictReader(fh)]
+            if not rows:
+                raise ValueError('The sweep CSV contains no results.')
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            messagebox.showerror(
+                self.root.tr("Invalid sweep"), str(exc), parent=self.root)
+            return
+        self._clear_results()
+        self._last_sweep_cfg = cfg
+        for row in rows:
+            self._insert_result_row(row)
+
+    def _use_selected(self):
+        selected = self.tree.selection()
+        if not selected or self._last_sweep_cfg is None:
+            messagebox.showwarning(
+                self.root.tr("No sweep result selected"),
+                self.root.tr("Select one result row first."), parent=self.root)
+            return
+        row = self._rows_by_item[selected[0]]
+        cfg = copy.deepcopy(self._last_sweep_cfg)
+        cfg.tikhonov_factor = float(row['Tikhonov'])
+        self.root.pipeline_panel.apply_config(cfg)
+        self.root.notebook.select(self.root.pipeline_panel)
+
     def _on_run(self):
         out_dir = self.get_output_dir()
         if not out_dir:
@@ -160,20 +233,15 @@ class SweepPanel(ttk.Frame):
             messagebox.showerror(self.root.tr("Invalid parameters"), str(exc))
             return
         fine = cfg.sweep.fine
+        self._last_sweep_cfg = copy.deepcopy(cfg)
 
         # Clear table
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+        self._clear_results()
 
         def _on_progress(phase, tk, event, row=None):
             # called from worker thread -> schedule UI update on main thread
             if event == 'done' and row is not None:
-                self.root.after(0, lambda r=row: self.tree.insert(
-                    '', 'end',
-                    values=(r['Fase'], r['Tikhonov'],
-                            f"{r['Pendiente_mT_per_m_per_A']:.4g}",
-                            f"{r['Error_Medio_pct']:.4g}",
-                            f"{r['RMSE_per_range_mT_per_m_per_A']:.4g}")))
+                self.root.after(0, lambda r=row: self._insert_result_row(r))
 
         def _target():
             return sweep_mod.run_tikhonov_sweep(

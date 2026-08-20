@@ -13,8 +13,9 @@ horizontal log). Matplotlib previews stay aspect-locked so they do not distort.
 from __future__ import annotations
 
 import math
+import os
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Optional, Tuple
 
 import numpy as np
@@ -28,6 +29,11 @@ from coilgen.config import (
     Config,
     apply_custom_shell_dims,
     list_shell_pairs,
+)
+from coilgen.presets import (
+    default_preset_dir,
+    load_config_preset,
+    save_config_preset,
 )
 from .runner import WorkerRunner
 from .units import mm_to_m
@@ -265,6 +271,14 @@ class PipelinePanel(ttk.Frame):
             row=11, column=1, sticky='w')
         self._toggle_shell()
 
+        # Reusable JSON configurations.
+        presets = ttk.LabelFrame(left, text="Presets", padding=6)
+        presets.pack(fill='x', pady=4, padx=(0, 2))
+        ttk.Button(presets, text="Save preset...", command=self._save_preset).pack(
+            side='left', padx=4)
+        ttk.Button(presets, text="Load preset...", command=self._load_preset).pack(
+            side='left', padx=4)
+
         # Steps toggles
         steps = ttk.LabelFrame(left, text="Steps", padding=6)
         steps.pack(fill='x', pady=4, padx=(0, 2))
@@ -399,6 +413,109 @@ class PipelinePanel(ttk.Frame):
 
     def _clear_log(self):
         self.log_text.delete('1.0', 'end')
+
+    def _save_preset(self):
+        try:
+            cfg = self._build_cfg()
+        except (ValueError, KeyError) as exc:
+            messagebox.showerror(self.root.tr("Invalid parameters"), str(exc))
+            return
+        directory = default_preset_dir()
+        os.makedirs(directory, exist_ok=True)
+        initial = f'{cfg.design_folder}.json'
+        path = filedialog.asksaveasfilename(
+            title=self.root.tr("Save preset"), initialdir=directory,
+            initialfile=initial, defaultextension='.json',
+            filetypes=[("JSON", "*.json")], parent=self.root)
+        if not path:
+            return
+        save_config_preset(
+            cfg, path, name=os.path.splitext(os.path.basename(path))[0],
+            source='pipeline',
+        )
+        messagebox.showinfo(
+            self.root.tr("Preset saved"),
+            self.root.tr("Preset saved to:\n{path}", path=path),
+            parent=self.root,
+        )
+
+    def _load_preset(self):
+        directory = default_preset_dir()
+        os.makedirs(directory, exist_ok=True)
+        path = filedialog.askopenfilename(
+            title=self.root.tr("Load preset"), initialdir=directory,
+            filetypes=[("JSON", "*.json"),
+                       (self.root.tr("All files"), "*.*")], parent=self.root)
+        if not path:
+            return
+        try:
+            cfg = load_config_preset(path)
+            self.apply_config(cfg)
+        except (OSError, ValueError, TypeError) as exc:
+            messagebox.showerror(
+                self.root.tr("Invalid preset"), str(exc), parent=self.root)
+
+    @staticmethod
+    def _mm_text(value_m: float) -> str:
+        return f'{value_m * 1000.0:g}'
+
+    def apply_config(self, cfg: Config) -> None:
+        """Populate Pipeline controls from a preset or sweep configuration."""
+        self.axis_var.set(cfg.gradient_axis)
+        self.tikhonov_var.set(f'{cfg.tikhonov_factor:g}')
+        self.levels_var.set(str(cfg.num_levels))
+        self.radius_var.set(self._mm_text(cfg.cylinder.radius))
+        self.height_var.set(self._mm_text(cfg.cylinder.height))
+        self.cw_var.set(self._mm_text(cfg.wire.conductor_width))
+        self.a_var.set(f'{cfg.wire.cross_section_a_frac:g}')
+        self.b_var.set(f'{cfg.wire.cross_section_b_frac:g}')
+        self.n_var.set(str(cfg.wire.cross_section_n))
+        self.material_var.set(cfg.fasthenry.material)
+        self.resistivity_var.set(f'{cfg.fasthenry.specific_conductivity:.6g}')
+        self.layer_gap_var.set(self._mm_text(cfg.winding.layer_gap_mm))
+        self.margin_var.set(f'{cfg.shell.auto_margin_pct * 100.0:g}')
+
+        ellipsoidal = not (
+            math.isclose(cfg.target.rx, cfg.target.ry)
+            and math.isclose(cfg.target.rx, cfg.target.rz)
+        )
+        self.roi_ellipsoidal_var.set(ellipsoidal)
+        self.roi_var.set(self._mm_text(cfg.target.rx))
+        self._toggle_roi()
+        self.roi_rx_var.set(self._mm_text(cfg.target.rx))
+        self.roi_ry_var.set(self._mm_text(cfg.target.ry))
+        self.roi_rz_var.set(self._mm_text(cfg.target.rz))
+
+        self.run_gradient_var.set(cfg.control.run_gradient)
+        self.run_leads_var.set(cfg.control.run_leads)
+        self.run_shell_var.set(cfg.control.run_shell)
+        self.lead_blend_var.set(self._mm_text(cfg.leads.lead_blend))
+        self.cs_blend_rings_var.set(str(cfg.leads.cs_blend_rings))
+        self.junction_rigid_steps_var.set(str(cfg.leads.junction_rigid_steps))
+
+        matching_label = ''
+        if cfg.shell.use_custom_stl:
+            wanted = {
+                os.path.normcase(os.path.abspath(path))
+                for path in (cfg.shell.custom_stl_a, cfg.shell.custom_stl_b)
+                if path
+            }
+            for label, (path_a, path_b) in self._shell_pair_by_label.items():
+                available = {
+                    os.path.normcase(os.path.abspath(path_a)),
+                    os.path.normcase(os.path.abspath(path_b)),
+                }
+                if wanted == available:
+                    matching_label = label
+                    break
+        if matching_label:
+            self.shell_pair_var.set(matching_label)
+            self.shell_mode_var.set('custom')
+        else:
+            self.shell_mode_var.set('auto')
+
+        self._toggle_shell()
+        self._redraw_previews()
 
     def _on_material_changed(self):
         """Load the standard resistivity for a selected material."""

@@ -4,6 +4,7 @@ import pytest
 
 from halbach_coils.coilgen.config import Config
 from halbach_coils.coilgen import sweep
+from halbach_coils.coilgen.presets import load_config_preset
 
 
 @pytest.mark.parametrize(
@@ -66,6 +67,9 @@ def test_sweep_runs_coarse_and_fine_passes_and_writes_summaries(
     assert len(csv_rows) == 4
     assert 'MEJOR PENDIENTE' in open(
         result.txt_path, encoding='utf-8').read()
+    saved_cfg = load_config_preset(result.config_preset_path)
+    assert saved_cfg.gradient_axis == 'x'
+    assert saved_cfg.num_levels == cfg.num_levels
 
 
 def test_sweep_keeps_going_when_one_run_fails(monkeypatch, tmp_path):

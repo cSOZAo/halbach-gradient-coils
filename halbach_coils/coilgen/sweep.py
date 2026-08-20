@@ -29,6 +29,10 @@ import numpy as np
 from .config import Config
 from .gradient import run_gradient
 from .paths import unique_run_dir
+from .presets import save_config_preset
+
+
+SWEEP_CONFIG_FILENAME = 'Sweep_Config.json'
 
 
 @dataclass
@@ -37,6 +41,7 @@ class SweepResult:
     rows: List[dict] = field(default_factory=list)
     csv_path: str = ''
     txt_path: str = ''
+    config_preset_path: str = ''
     best_slope: Optional[dict] = None
     best_error: Optional[dict] = None
 
@@ -198,6 +203,10 @@ def run_tikhonov_sweep(
         )
     axis_dir = os.path.join(output_base_dir, f"Eje_{cfg.axis_label}")
     os.makedirs(axis_dir, exist_ok=True)
+    config_preset_path = save_config_preset(
+        cfg, os.path.join(axis_dir, SWEEP_CONFIG_FILENAME),
+        name=f'Sweep {cfg.axis_label}', source='tikhonov_sweep',
+    )
 
     print("\n" + "=" * 60)
     print(f"  BARRIDO TIKHONOV - {cfg.axis_label} "
@@ -263,6 +272,7 @@ def run_tikhonov_sweep(
 
     return SweepResult(
         axis=axis, rows=rows, csv_path=csv_path, txt_path=txt_path,
+        config_preset_path=config_preset_path,
         best_slope=best_slope, best_error=best_error,
     )
 
