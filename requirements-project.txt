@@ -1,0 +1,5 @@
+# Install the local pyCoilGen package and the Halbach application dependencies.
+-e .
+manifold3d==3.5.2
+pandas==3.0.5
+pytest==9.1.1

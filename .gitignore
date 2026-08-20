@@ -1,12 +1,48 @@
-# Simulation outputs (STLs, pickles) — keep out of git
-/resultados/
+# Virtual environment
+env
+.venv
+.venv311/
+env.old
+# Environment variables file
+.env
 
-# Python / logs
+
+*.pyc
 __pycache__/
-*.py[cod]
-*.log
+*.tar
 
-# Local backups (not source of truth)
-_backup*/
-_backups*/
-*_BACKUP/
+instance/
+
+.pytest_cache/
+.coverage
+htmlcov/
+
+dist/
+build/
+*.egg-info/
+
+.vscode
+workspace.code-workspace
+matlab/
+images/
+debug/
+scratchpad/*.txt
+
+# FastHenry files
+output*.log
+coil_track_FH2_input*.inp
+Zc*.mat
+
+# Output files in top directory
+*.stl
+
+ChatGPT*.html
+ChatGPT*.txt
+
+# Halbach-coil generated outputs
+halbach_coils/lcurve_*/
+halbach_coils/resultados_*/
+halbach_coils/Backup*/
+halbach_coils/*.pkl
+halbach_coils/*.npy
+halbach_coils/*.stl
