@@ -1,5 +1,9 @@
 # Pipeline — shared configuration
 
+> **Archived and unsupported.** This is a historical pre-consolidation pipeline.
+> Use the current GUI or `halbach_coils/run_pipeline.py` as documented in the
+> [project README](../../../../README.md).
+
 Edit **`coil_mold_common.py`** only (geometry, paths, subtract mode, lead params).
 
 ```bash

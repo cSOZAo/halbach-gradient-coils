@@ -112,8 +112,12 @@ def _ensure_wire_exists(cfg: Config, run_dir: str, run_gradient: bool) -> str:
         f"matching an existing run.")
 
 
-def run_pipeline(cfg: Config, should_stop=None, ask_user=None) -> PipelineResult:
+def run_pipeline(cfg: Config, should_stop=None, ask_user=None,
+                 question_language: str = "es") -> PipelineResult:
     """Run the configured pipeline steps and return its outcome.
+
+    ``question_language`` controls the interactive congestion warning emitted
+    for a GUI callback; Spanish is retained as the default for legacy callers.
 
     Respects ``cfg.output_dir`` when set (GUI / ``--output-dir``). Only
     allocates a fresh ``unique_run_dir`` under ``resultados/pipeline/`` when
@@ -156,14 +160,21 @@ def run_pipeline(cfg: Config, should_stop=None, ask_user=None) -> PipelineResult
             cfg, output_dir=run_dir, check_overlap=cfg.overlap_warn)
         print()
         if collision_report is not None and collision_report.n_collisions > 0:
-            question = collision_report.user_question()
+            question = collision_report.user_question(question_language)
             print(question)
             if ask_user is not None and not ask_user(question):
-                print("\n  Resultado descartado por el usuario.")
-                print("  No se ejecutarán las etapas de leads ni shell.")
+                if question_language == "es":
+                    print("\n  Resultado descartado por el usuario.")
+                    print("  No se ejecutarán las etapas de leads ni shell.")
+                else:
+                    print("\n  The user discarded the result.")
+                    print("  The leads and shell stages will not run.")
                 return PipelineResult(run_dir, discarded=True)
             if ask_user is not None:
-                print("\n  El usuario aceptó continuar con el resultado.")
+                if question_language == "es":
+                    print("\n  El usuario aceptó continuar con el resultado.")
+                else:
+                    print("\n  The user accepted the result and continued.")
     else:
         _ensure_wire_exists(cfg, run_dir, cfg.control.run_gradient)
 

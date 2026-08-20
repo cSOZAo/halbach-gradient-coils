@@ -1,5 +1,9 @@
 # Pipeline Gz — inner cylinder (g_3a / g_3b)
 
+> **Archived and unsupported.** The values below record an old Gz experiment;
+> they are not current manufacturing defaults. Use the current configuration and
+> entry points described in the [project README](../../../../README.md).
+
 Copy of `pipeline/` configured for a **physical Z gradient** on Fusion layer 3.
 
 | Setting | `pipeline/` (Gy) | `pipeline_gz/` (Gz) |

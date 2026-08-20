@@ -55,6 +55,10 @@ def test_same_inner_layer_x_reports_one_three_cable_collision():
     assert "1 quedará en la capa externa y 2 quedarán en la interna" in question
     assert "¿Desea continuar o descartar el resultado?" in question
 
+    english_question = report.user_question("en")
+    assert "1 will remain in the outer layer and 2 in the inner layer" in english_question
+    assert "Do you want to continue or discard the result?" in english_question
+
 
 def test_nearby_projected_crossings_only_count_actual_same_layer_x():
     solution = _solution(

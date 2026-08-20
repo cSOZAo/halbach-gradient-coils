@@ -40,10 +40,10 @@ exit /b 0
 :setup
 echo.
 echo ============================================================
-echo  Configuracion inicial de %APP_NAME%
+echo  First-time setup for %APP_NAME%
 echo ============================================================
 echo.
-echo Este proceso puede tardar varios minutos la primera vez.
+echo This process may take several minutes on the first run.
 echo.
 
 if not exist "%REQUIREMENTS%" goto missing_files
@@ -56,7 +56,7 @@ if exist "%VENV_PYTHON%" (
 )
 
 if exist "%VENV_DIR%" (
-    echo Eliminando un entorno virtual incompleto o incompatible...
+    echo Removing an incomplete or incompatible virtual environment...
     rmdir /s /q "%VENV_DIR%"
     if exist "%VENV_DIR%" goto remove_failed
 )
@@ -83,27 +83,27 @@ if not defined PYTHON_COMMAND (
     if not errorlevel 1 (
         python -c "import sys; assert (3, 11) <= sys.version_info[:2] < (3, 15) and not sys.version_info[:3] == (3, 14, 1)" >nul 2>&1
         if not errorlevel 1 (
-            set "SELECTED_PYTHON=compatible en PATH"
+            set "SELECTED_PYTHON=compatible version on PATH"
             set "PYTHON_COMMAND=python"
         )
     )
 )
 if not defined SELECTED_PYTHON goto python_missing
 
-echo Creando el entorno virtual con Python !SELECTED_PYTHON!...
+echo Creating the virtual environment with Python !SELECTED_PYTHON!...
 !PYTHON_COMMAND! -m venv "%VENV_DIR%"
 if errorlevel 1 goto setup_failed
 
 :install
-echo Actualizando pip...
+echo Updating pip...
 "%VENV_PYTHON%" -m pip install --upgrade pip
 if errorlevel 1 goto setup_failed
 
-echo Instalando las dependencias del proyecto...
+echo Installing project dependencies...
 "%VENV_PYTHON%" -m pip install -r "%REQUIREMENTS%"
 if errorlevel 1 goto setup_failed
 
-echo Verificando la instalacion...
+echo Verifying the installation...
 "%VENV_PYTHON%" -m pip check
 if errorlevel 1 goto setup_failed
 
@@ -112,7 +112,7 @@ if errorlevel 1 goto setup_failed
 
 >"%SETUP_STAMP%" echo %SETUP_VERSION%
 echo.
-echo Configuracion completada correctamente.
+echo Setup completed successfully.
 echo.
 if /i "%GRADIENTDESIGN_SETUP_ONLY%"=="1" exit /b 0
 if exist "%VENV_PYTHONW%" (
@@ -124,29 +124,29 @@ exit /b 0
 
 :python_missing
 echo.
-echo ERROR: No se encontro una version compatible de Python.
-echo Instala Python 3.11, 3.12, 3.13 o 3.14 de 64 bits. Python 3.14.1 no es compatible;
-echo usa la revision mas reciente de Python 3.14. Luego vuelve a ejecutar este archivo.
+echo ERROR: A compatible Python version was not found.
+echo Install 64-bit Python 3.11, 3.12, 3.13, or 3.14. Python 3.14.1 is not supported;
+echo use the newest Python 3.14 patch release, then run this file again.
 echo.
 echo Descarga: https://www.python.org/downloads/windows/
 goto wait_on_error
 
 :missing_files
 echo.
-echo ERROR: Faltan requirements-project.txt o halbach_coils\run_gui.py.
-echo Asegurate de ejecutar este archivo desde una copia completa del repositorio.
+echo ERROR: requirements-project.txt or halbach_coils\run_gui.py is missing.
+echo Run this file from a complete copy of the repository.
 goto wait_on_error
 
 :remove_failed
 echo.
-echo ERROR: No se pudo reemplazar "%VENV_DIR%".
-echo Cierra la GUI y cualquier terminal que este usando el entorno e intenta de nuevo.
+echo ERROR: "%VENV_DIR%" could not be replaced.
+echo Close the GUI and any terminal using the environment, then try again.
 goto wait_on_error
 
 :setup_failed
 echo.
-echo ERROR: La configuracion no termino correctamente.
-echo Revisa el mensaje anterior. Al volver a ejecutar este archivo se reintentara.
+echo ERROR: Setup did not complete successfully.
+echo Review the message above. Running this file again will retry setup.
 
 :wait_on_error
 echo.

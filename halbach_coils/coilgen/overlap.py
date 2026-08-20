@@ -54,10 +54,38 @@ class OverlapReport:
     def max_cables(self) -> int:
         return max((site.cable_count for site in self.sites), default=0)
 
-    def user_question(self) -> str:
-        """Spanish warning shown between gradient generation and leads/shell."""
+    def user_question(self, language: str = "es") -> str:
+        """Warning shown between gradient generation and leads/shell.
+
+        Spanish remains the default for compatibility with historical CLI
+        callers; the English-default GUI passes its current language.
+        """
         if not self.sites:
             return ""
+        if language == "en":
+            if len(self.sites) == 1:
+                site = self.sites[0]
+                description = (
+                    f"{site.cable_count} cables are trying to pass through the same location; "
+                    f"1 will remain in the outer layer and "
+                    f"{site.inner_layer_count} in the inner layer."
+                )
+            else:
+                lines = [
+                    f"{len(self.sites)} locations with three or more cables were detected:"
+                ]
+                for index, site in enumerate(self.sites, start=1):
+                    lines.append(
+                        f"• Location {index}: {site.cable_count} cables; 1 will remain "
+                        f"in the outer layer and {site.inner_layer_count} in the inner layer."
+                    )
+                description = "\n".join(lines)
+            return (
+                f"{description}\n\n"
+                "Do you want to continue or discard the result?\n\n"
+                "Yes: continue with leads and shell.\n"
+                "No: discard this result and stop the pipeline."
+            )
         if len(self.sites) == 1:
             site = self.sites[0]
             description = (

@@ -1,5 +1,10 @@
 # Standalone scripts — self-contained parameters
 
+> **Archived and unsupported.** These instructions document a pre-consolidation
+> implementation and are retained only for provenance. For a current one-stage
+> run, use the **Standalone** tab documented in the
+> [project README](../../../../README.md).
+
 Each script has a **USER PARAMETERS** block at the top. No `coil_mold_common.py`.
 
 Default output folder: ``../resultados/standalone/Gy_tk2500_lvl26/``

@@ -28,23 +28,23 @@ class SweepPanel(ttk.Frame):
         self._build()
 
     def _build(self):
-        form = ttk.LabelFrame(self, text="Barrido Tikhonov", padding=10)
+        form = ttk.LabelFrame(self, text="Tikhonov sweep", padding=10)
         form.pack(fill='x', padx=8, pady=6)
 
-        ttk.Label(form, text="Eje:").grid(row=0, column=0, sticky='w', padx=4, pady=4)
+        ttk.Label(form, text="Axis:").grid(row=0, column=0, sticky='w', padx=4, pady=4)
         self.axis_var = tk.StringVar(value='z')
         axis_combo = ttk.Combobox(form, textvariable=self.axis_var,
                                   values=['x', 'y', 'z'], state='readonly', width=6)
         axis_combo.grid(row=0, column=1, sticky='w')
         axis_combo.bind('<<ComboboxSelected>>', lambda _e: self._fill_defaults())
 
-        ttk.Label(form, text="Radio externo [mm]:").grid(row=1, column=0, sticky='w', padx=4, pady=4)
+        ttk.Label(form, text="Outer radius [mm]:").grid(row=1, column=0, sticky='w', padx=4, pady=4)
         self.radius_var = tk.StringVar(value='150')
         ttk.Entry(form, textvariable=self.radius_var, width=10).grid(row=1, column=1, sticky='w')
-        ttk.Label(form, text="Altura [mm]:").grid(row=1, column=2, sticky='w', padx=4)
+        ttk.Label(form, text="Height [mm]:").grid(row=1, column=2, sticky='w', padx=4)
         self.height_var = tk.StringVar(value='430')
         ttk.Entry(form, textvariable=self.height_var, width=10).grid(row=1, column=3, sticky='w')
-        ttk.Label(form, text="Niveles:").grid(row=2, column=0, sticky='w', padx=4, pady=4)
+        ttk.Label(form, text="Levels:").grid(row=2, column=0, sticky='w', padx=4, pady=4)
         self.levels_var = tk.StringVar(value='26')
         ttk.Entry(form, textvariable=self.levels_var, width=8).grid(row=2, column=1, sticky='w')
 
@@ -54,27 +54,31 @@ class SweepPanel(ttk.Frame):
         ttk.Label(form, text="Tikhonov max:").grid(row=3, column=2, sticky='w', padx=4)
         self.tk_max_var = tk.StringVar(value='1000000')
         ttk.Entry(form, textvariable=self.tk_max_var, width=12).grid(row=3, column=3, sticky='w')
-        ttk.Label(form, text="N puntos grueso:").grid(row=4, column=0, sticky='w', padx=4, pady=4)
+        ttk.Label(form, text="Coarse points:").grid(row=4, column=0, sticky='w', padx=4, pady=4)
         self.n_coarse_var = tk.StringVar(value='12')
         ttk.Entry(form, textvariable=self.n_coarse_var, width=8).grid(row=4, column=1, sticky='w')
         self.fine_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(form, text="Ajuste fino", variable=self.fine_var).grid(row=4, column=2, columnspan=2, sticky='w')
+        ttk.Checkbutton(form, text="Fine adjustment", variable=self.fine_var).grid(row=4, column=2, columnspan=2, sticky='w')
 
         self._fill_defaults()
 
         bar = ttk.Frame(self)
         bar.pack(fill='x', padx=8, pady=4)
-        ttk.Button(bar, text="Correr barrido", command=self._on_run).pack(side='left')
+        ttk.Button(bar, text="Run sweep", command=self._on_run).pack(side='left')
         self.progress = ttk.Progressbar(bar, mode='determinate', maximum=100, length=300)
         self.progress.pack(side='left', padx=10)
 
         # Results table
-        res = ttk.LabelFrame(self, text="Resultados", padding=4)
+        res = ttk.LabelFrame(self, text="Results", padding=4)
         res.pack(fill='both', expand=True, padx=8, pady=4)
-        cols = ('Fase', 'Tikhonov', 'Pendiente', 'ErrorMedio', 'RMSE')
+        cols = ('phase', 'tikhonov', 'slope', 'mean_error', 'rmse')
         self.tree = ttk.Treeview(res, columns=cols, show='headings', height=10)
+        self._column_labels = {
+            'phase': 'Phase', 'tikhonov': 'Tikhonov', 'slope': 'Slope',
+            'mean_error': 'Mean error', 'rmse': 'RMSE',
+        }
         for c, w in zip(cols, (60, 90, 110, 90, 110)):
-            self.tree.heading(c, text=c)
+            self.tree.heading(c, text=self.root.tr(self._column_labels[c]))
             self.tree.column(c, width=w, anchor='e')
         self.tree.pack(side='left', fill='both', expand=True)
         sb = ttk.Scrollbar(res, command=self.tree.yview)
@@ -101,8 +105,8 @@ class SweepPanel(ttk.Frame):
     def _on_run(self):
         out_dir = self.get_output_dir()
         if not out_dir:
-            messagebox.showwarning("Falta directorio",
-                                   "Seleccione un directorio de salida primero.")
+            messagebox.showwarning(self.root.tr("Missing directory"),
+                                   self.root.tr("Select an output directory first."))
             return
         try:
             cfg = Config(gradient_axis=self.axis_var.get(),
@@ -112,7 +116,7 @@ class SweepPanel(ttk.Frame):
             cfg.cylinder.height = mm_to_m(self.height_var.get())
             cfg.sweep.fine = self.fine_var.get()
         except (ValueError, KeyError) as exc:
-            messagebox.showerror("Parametros invalidos", str(exc))
+            messagebox.showerror(self.root.tr("Invalid parameters"), str(exc))
             return
 
         tk_min = float(self.tk_min_var.get())
@@ -142,16 +146,23 @@ class SweepPanel(ttk.Frame):
 
         def _on_done(result, err):
             if err is not None:
-                messagebox.showerror("Barrido", f"Fallo: {err}")
+                messagebox.showerror(
+                    self.root.tr("Sweep"), self.root.tr("Failed: {error}", error=err))
             elif result is not None:
                 bs = result.best_slope
                 be = result.best_error
                 messagebox.showinfo(
-                    "Barrido completo",
-                    f"Mejor pendiente: tk={bs['Tikhonov']} "
-                    f"({bs['Pendiente_mT_per_m_per_A']:.4g} mT/(m.A))\n"
-                    f"Menor error: tk={be['Tikhonov']} "
-                    f"({be['Error_Medio_pct']:.4g} %)\n"
-                    f"CSV: {result.csv_path}")
+                    self.root.tr("Sweep complete"),
+                    self.root.tr(
+                        "Best slope: tk={tk} ({value:.4g} mT/(m.A))\nLowest error: tk={error_tk} ({error:.4g} %)\nCSV: {path}",
+                        tk=bs['Tikhonov'],
+                        value=bs['Pendiente_mT_per_m_per_A'],
+                        error_tk=be['Tikhonov'],
+                        error=be['Error_Medio_pct'],
+                        path=result.csv_path))
 
         self.runner.run(_target, on_done=_on_done)
+
+    def retranslate(self):
+        for column, source in self._column_labels.items():
+            self.tree.heading(column, text=self.root.tr(source))
