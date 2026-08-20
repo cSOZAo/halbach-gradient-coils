@@ -975,8 +975,11 @@ def run_leads(
     print(f"  Leads-only STL : {leads_only_stl}")
 
     print("Verifying...")
-    _verify_result(final, n_coil_vertices, apex, axis_hat, shell_radius,
-                   ring_info, circ_unit, axis_name)
+    verified = _verify_result(final, n_coil_vertices, apex, axis_hat, shell_radius,
+                              ring_info, circ_unit, axis_name)
+    if not verified:
+        print("  WARNING: lead mesh failed verification (see checks above); the "
+              "shell step may leave grooves open or misaligned.")
 
     print(f"\n{'=' * 60}")
     print("  DONE")

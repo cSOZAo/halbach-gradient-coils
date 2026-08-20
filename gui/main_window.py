@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import os
 import tkinter as tk
-from tkinter import filedialog, ttk
+import traceback
+from tkinter import filedialog, messagebox, ttk
 
 from .pipeline_panel import PipelinePanel
 from .standalone_panel import StandalonePanel
@@ -48,6 +49,12 @@ class CoilGenApp(tk.Tk):
         self.notebook.add(self.sweep_panel, text="Barrido Tikhonov")
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def report_callback_exception(self, exc_type, exc_value, exc_tb):
+        """Surface widget-callback errors instead of only printing to stderr."""
+        traceback.print_exception(exc_type, exc_value, exc_tb)
+        messagebox.showerror(
+            "Error inesperado", f"{exc_type.__name__}: {exc_value}")
 
     def _get_output_dir(self) -> str:
         return self.output_dir_var.get().strip()

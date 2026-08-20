@@ -21,6 +21,7 @@ from __future__ import annotations
 import copy
 import csv
 import os
+import traceback
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
@@ -68,6 +69,7 @@ def _row_from_metrics(tk: float, phase: str, metrics: dict) -> dict:
         'Wire_length_m': float(
             metrics.get('total_wire_length_computed', float('nan'))
         ),
+        'Error': '',
     }
 
 
@@ -137,13 +139,15 @@ def _run_one(cfg: Config, tk: float, base_dir: str, phase: str,
         _, metrics, _ = run_gradient(run_cfg, output_dir=tk_dir, check_overlap=False)
         row = _row_from_metrics(tk, phase, metrics)
     except Exception as exc:  # keep sweeping on a single failure
-        print(f"  [sweep] FAILED tk={tk}: {exc}")
+        print(f"  [sweep] FAILED tk={tk}: {type(exc).__name__}: {exc}")
+        traceback.print_exc()
         row = {
             'Fase': phase, 'Tikhonov': tk,
             'Pendiente_mT_per_m_per_A': float('nan'),
             'Error_Medio_pct': float('nan'),
             'RMSE_per_range_mT_per_m_per_A': float('nan'),
             'Wire_length_m': float('nan'),
+            'Error': f"{type(exc).__name__}: {exc}",
         }
     if on_progress:
         on_progress(phase, tk, 'done', row)
@@ -177,6 +181,16 @@ def run_tikhonov_sweep(
     n_coarse = d_n if n_coarse is None else n_coarse
     fine = cfg.sweep.fine if fine is None else fine
 
+    if tk_min <= 0 or tk_max <= 0:
+        raise ValueError(
+            f"Tikhonov bounds must be positive (log-spaced grid); "
+            f"got tk_min={tk_min}, tk_max={tk_max}.")
+    if tk_max <= tk_min:
+        raise ValueError(
+            f"tk_max must be greater than tk_min; got {tk_min} .. {tk_max}.")
+    if n_coarse < 2:
+        raise ValueError(f"n_coarse must be >= 2; got {n_coarse}.")
+
     if output_base_dir is None:
         output_base_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -201,8 +215,11 @@ def run_tikhonov_sweep(
     # ----- Phase 2: fine (linear around best coarse) ----------------------
     finite = [r for r in rows if np.isfinite(r['Pendiente_mT_per_m_per_A'])]
     if not finite:
-        print("  [sweep] no successful coarse runs; skipping fine pass.")
-        best_slope = rows[0]
+        errors = '\n'.join(
+            f"    tk={r['Tikhonov']}: {r['Error'] or 'unknown error'}" for r in rows)
+        raise RuntimeError(
+            f"every Tikhonov run failed for axis {cfg.axis_label}; "
+            f"no sweep summary was written.\n{errors}")
     else:
         best_slope = max(finite, key=lambda r: abs(r['Pendiente_mT_per_m_per_A']))
         if fine:
@@ -240,6 +257,13 @@ def run_tikhonov_sweep(
     txt_path = os.path.join(axis_dir, f"Resumen_Completo_Eje_{cfg.axis_label}.txt")
     _write_csv(csv_path, rows)
     _write_txt(txt_path, cfg, rows, best_slope, best_error)
+
+    failed = [r for r in rows if r['Error']]
+    if failed:
+        print(f"\n  WARNING: {len(failed)}/{len(rows)} Tikhonov run(s) failed; "
+              f"their rows are n/a in the summary:")
+        for r in failed:
+            print(f"    tk={r['Tikhonov']}: {r['Error']}")
 
     print(f"\n  Resumen guardado en: {axis_dir}")
     print(f"  Mejor pendiente: tk={best_slope['Tikhonov']} "

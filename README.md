@@ -142,7 +142,28 @@ After `run_gradient`, `coilgen/overlap.py` samples the wire segments and
 reports non-adjacent pairs closer than `cfg.overlap_clearance *
 cfg.wire.conductor_width`. The CLI prints a warning; the GUI surfaces it.
 Raise `cfg.overlap_clearance` to be stricter, or disable with
-`--no-overlap-warn` / `cfg.overlap_warn = False`.
+`--no-overlap-warn` / `cfg.overlap_warn = False`. Without SciPy the check
+degrades to a subsampled scan; that run prints a warning and sets
+`OverlapReport.approximate`.
+
+---
+
+## Error handling
+
+Conditions that would silently produce wrong geometry or misleading results
+raise instead of printing and continuing:
+
+- Lead components that stay non-watertight after repair (their grooves would be
+  missing from the shell) and empty boolean results in `run_shell`.
+- Custom shell mode with a missing or half-configured pair of half STLs
+  (`Config.shell_half_paths()`); it no longer falls back to the Fusion assets.
+- A Tikhonov sweep where every run failed, plus out-of-range sweep arguments
+  (`tk_min`/`tk_max`/`n_coarse`).
+
+A sweep with partial failures still writes its summary: failed rows keep the
+exception text in the `Error` column and are listed again at the end. Missing
+FastHenry2 stays non-fatal (R/L are `n/a`), and GUI panels turn invalid entries
+into a "Parametros invalidos" dialog naming the field.
 
 ---
 

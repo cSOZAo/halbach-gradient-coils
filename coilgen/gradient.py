@@ -235,17 +235,16 @@ def run_gradient(
             print(f"\n  Overlap check OK: min wire distance "
                   f"{overlap_report.min_distance_m*1000:.3f} mm "
                   f"(threshold {overlap_report.threshold_m*1000:.2f} mm).")
+        if overlap_report.approximate:
+            print("  NOTE: overlap result is approximate (subsampled fallback).")
 
     # ----- Wire radial extent vs analytical shell -------------------------
-    try:
-        from .shell import warn_wire_radial_mismatch
-        wire_path = _paths.resolve_wire_stl_path(
-            output_dir, cfg.gradient_axis,
-            cfg.tikhonov_factor, cfg.num_levels,
-        )
-        warn_wire_radial_mismatch(cfg, wire_path)
-    except (FileNotFoundError, RuntimeError):
-        pass
+    from .shell import warn_wire_radial_mismatch
+    wire_path = _paths.resolve_wire_stl_path(
+        output_dir, cfg.gradient_axis,
+        cfg.tikhonov_factor, cfg.num_levels,
+    )
+    warn_wire_radial_mismatch(cfg, wire_path)
 
     print(f"  Results directory      : {output_dir}\n")
     return solution, metrics, overlap_report
