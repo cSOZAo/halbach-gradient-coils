@@ -67,7 +67,8 @@ def internal_field_axis(gradient_axis: str) -> str:
 
     The cylinder is rotated (CYL_ROT_AXIS=Y, CYL_ROT_ANGLE=90 deg) so the
     generated fields are permuted: physical Gx/Gy/Gz map to internal y/z/x.
-    Wire STLs are named ``..._wire_0_{internal}.stl``.
+    The internal axis is used for field construction, but is intentionally not
+    repeated in output STL names (the physical axis is already in the stem).
     """
     return _AXIS_MAP[gradient_axis.lower()]
 

@@ -44,12 +44,14 @@ class PipelineResult:
 
 
 def _coil_only_wire_paths(folder: str) -> list[str]:
-    """Coil-only wire STLs in *folder* (any internal field suffix x/y/z)."""
-    paths: list[str] = []
-    for wire in glob.glob(os.path.join(folder, 'Gradient_*_wire_0_?.stl')):
-        if not _paths._is_derived_wire_stl(wire):
-            paths.append(wire)
-    return paths
+    """Canonical and legacy coil-only wire STLs in *folder*."""
+    paths: set[str] = set()
+    patterns = ('Gradient_*_wire_0.stl', 'Gradient_*_wire_0_?.stl')
+    for pattern in patterns:
+        for wire in glob.glob(os.path.join(folder, pattern)):
+            if not _paths._is_derived_wire_stl(wire):
+                paths.add(wire)
+    return sorted(paths)
 
 
 def _seed_wire_from_previous_run(cfg: Config, run_dir: str) -> bool:
@@ -107,7 +109,7 @@ def _ensure_wire_exists(cfg: Config, run_dir: str, run_gradient: bool) -> str:
     raise FileNotFoundError(
         f"Wire STL missing: {path}\n"
         f"Expected Gradient_G{cfg.gradient_axis}_tk{int(cfg.tikhonov_factor)}"
-        f"_lvl{cfg.num_levels}_wire_0_<internal_axis>.stl in {run_dir}\n"
+        f"_lvl{cfg.num_levels}_wire_0.stl in {run_dir}\n"
         f"Run with the gradient step enabled, or --axis/--tikhonov/--levels "
         f"matching an existing run.")
 

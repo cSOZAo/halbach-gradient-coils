@@ -22,6 +22,7 @@ STANDALONE_OUTPUT_BASE = os.path.join(PROJECT_ROOT, 'resultados', 'standalone')
 PIPELINE_OUTPUT_BASE = os.path.join(PROJECT_ROOT, 'resultados', 'pipeline')
 
 ACTIVE_STEM_FILE = '.active_project_stem'
+WIRE_CAD_FILENAME = '{project}_wire_{part_index}.stl'
 
 _SUFFIX_RE = re.compile(r'\(\d+\)$')
 
@@ -79,12 +80,13 @@ def unique_stem(
     """
     Return *stem* or ``stem(n)`` when marker files already exist in *directory*.
 
-    Occupancy is decided by the marker templates (wire STL + metrics txt by
-    default, keyed to the internal field axis for the requested gradient axis).
+    Occupancy is decided by the marker templates (canonical wire STL, legacy
+    axis-suffixed wire STL, and metrics txt by default).
     """
     if marker_templates is None:
         field_axis = internal_field_axis(gradient_axis)
         marker_templates = (
+            '{stem}_wire_0.stl',
             f'{{stem}}_wire_0_{field_axis}.stl',
             '{stem}_metrics.txt',
         )
@@ -140,8 +142,8 @@ def read_active_stem(directory: str, default: str = '') -> str:
 
 
 def wire_stl_name(stem: str, gradient_axis: str = 'y') -> str:
-    field_axis = internal_field_axis(gradient_axis)
-    return f'{stem}_wire_0_{field_axis}.stl'
+    """Canonical coil STL name (the physical axis is already in ``stem``)."""
+    return f'{stem}_wire_0.stl'
 
 
 def _is_derived_wire_stl(path: str) -> bool:
@@ -191,13 +193,25 @@ def resolve_wire_stl_path(
 
     default_stem = gradient_project_stem(axis, tikhonov, num_levels)
     stem = read_active_stem(output_dir, default_stem)
-    field_axis = internal_field_axis(axis)
     for candidate_stem in (stem, default_stem):
         path = os.path.join(output_dir, wire_stl_name(candidate_stem, axis))
         if os.path.isfile(path):
             return path
 
+    # Backward compatibility with results written before the redundant
+    # pyCoilGen internal-axis suffix was removed.
+    field_axis = internal_field_axis(axis)
+    for candidate_stem in (stem, default_stem):
+        legacy_path = os.path.join(
+            output_dir, f'{candidate_stem}_wire_0_{field_axis}.stl')
+        if os.path.isfile(legacy_path):
+            return legacy_path
+
     patterns = (
+        os.path.join(
+            output_dir,
+            f'Gradient_G{axis}_tk{int(tikhonov)}_lvl{num_levels}*_wire_0.stl',
+        ),
         os.path.join(
             output_dir,
             f'Gradient_G{axis}_tk{int(tikhonov)}_lvl{num_levels}'

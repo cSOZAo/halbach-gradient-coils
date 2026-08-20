@@ -178,7 +178,7 @@ def run_gradient(
         'smooth_factor':                cfg.winding.smooth_factor,
         'make_cylindrical_pcb':         False,
         'save_stl_flag':                True,
-        'CAD_filename':                 '{project}_wire_{part_index}_{field_function}.stl',
+        'CAD_filename':                 _paths.WIRE_CAD_FILENAME,
         'tikhonov_reg_factor':          cfg.tikhonov_factor,
         'output_directory':             output_dir,
         'field_shape_function':         internal_axis,
