@@ -10,3 +10,9 @@ __pycache__/
 _backup*/
 _backups*/
 *_BACKUP/
+
+# Test / coverage artefacts
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
