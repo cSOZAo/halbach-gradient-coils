@@ -52,6 +52,19 @@ DEFAULT_RANGES = {
 }
 
 
+def validate_sweep_parameters(tk_min: float, tk_max: float,
+                              n_coarse: int, n_fine: int = 7) -> None:
+    """Reject sweep ranges that cannot produce a meaningful finite grid."""
+    if not np.isfinite(tk_min) or tk_min <= 0:
+        raise ValueError('Tikhonov min must be a positive finite number.')
+    if not np.isfinite(tk_max) or tk_max < tk_min:
+        raise ValueError('Tikhonov max must be finite and >= Tikhonov min.')
+    if n_coarse < 2:
+        raise ValueError('Coarse points must be at least 2.')
+    if n_fine < 1:
+        raise ValueError('Fine points must be at least 1.')
+
+
 def _row_from_metrics(tk: float, phase: str, metrics: dict) -> dict:
     return {
         'Fase': phase,
@@ -176,6 +189,7 @@ def run_tikhonov_sweep(
     tk_max = d_max if tk_max is None else tk_max
     n_coarse = d_n if n_coarse is None else n_coarse
     fine = cfg.sweep.fine if fine is None else fine
+    validate_sweep_parameters(tk_min, tk_max, n_coarse, n_fine)
 
     if output_base_dir is None:
         output_base_dir = os.path.join(

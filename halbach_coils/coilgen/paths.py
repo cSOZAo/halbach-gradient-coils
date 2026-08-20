@@ -25,6 +25,13 @@ ACTIVE_STEM_FILE = '.active_project_stem'
 WIRE_CAD_FILENAME = '{project}_wire_{part_index}.stl'
 
 _SUFFIX_RE = re.compile(r'\(\d+\)$')
+_PHYSICAL_AXIS_RE = re.compile(r'(?:^|[_-])G([xyz])(?:[_-]|$)', re.IGNORECASE)
+
+
+def infer_gradient_axis(path: str) -> str | None:
+    """Return the physical x/y/z axis encoded in a generated filename."""
+    match = _PHYSICAL_AXIS_RE.search(os.path.basename(path))
+    return match.group(1).lower() if match else None
 
 
 def dir_has_outputs(path: str) -> bool:

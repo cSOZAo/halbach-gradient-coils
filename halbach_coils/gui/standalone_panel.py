@@ -8,12 +8,19 @@ action. Each step runs in a worker thread with its output piped to the log.
 
 from __future__ import annotations
 
+import math
 import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
-from coilgen.config import Config, apply_custom_shell_dims, list_shell_pairs
+from coilgen.config import (
+    CONDUCTOR_MATERIAL_RESISTIVITY,
+    Config,
+    apply_custom_shell_dims,
+    list_shell_pairs,
+)
+from coilgen.paths import infer_gradient_axis
 from .runner import WorkerRunner
 from .units import mm_to_m
 
@@ -40,9 +47,10 @@ class StandalonePanel(ttk.Frame):
         self.action_combo.grid(row=0, column=1, sticky='w')
         self.action_combo.bind('<<ComboboxSelected>>', lambda _e: self._refresh())
 
-        # Common axis selector (wire needs it; leads/shell infer from file)
-        ttk.Label(top, text="Axis (for wire):").grid(row=1, column=0, sticky='w', padx=4, pady=4)
-        self.axis_var = tk.StringVar(value='y')
+        # For downstream steps this is automatically inferred from generated
+        # filenames, while remaining editable for arbitrary user-named STLs.
+        ttk.Label(top, text="Gradient axis:").grid(row=1, column=0, sticky='w', padx=4, pady=4)
+        self.axis_var = tk.StringVar(value='x')
         ttk.Combobox(top, textvariable=self.axis_var, values=['x', 'y', 'z'],
                      state='readonly', width=6).grid(row=1, column=1, sticky='w')
 
@@ -50,11 +58,34 @@ class StandalonePanel(ttk.Frame):
         self.tikhonov_var = tk.StringVar(value='2500')
         ttk.Entry(top, textvariable=self.tikhonov_var, width=10).grid(row=2, column=1, sticky='w')
         ttk.Label(top, text="Levels (wire):").grid(row=2, column=2, sticky='w', padx=4)
-        self.levels_var = tk.StringVar(value='26')
+        self.levels_var = tk.StringVar(value='12')
         ttk.Entry(top, textvariable=self.levels_var, width=8).grid(row=2, column=3, sticky='w')
         ttk.Label(top, text="Outer radius [mm]:").grid(row=3, column=0, sticky='w', padx=4, pady=4)
-        self.radius_var = tk.StringVar(value='150')
+        self.radius_var = tk.StringVar(value='39')
         ttk.Entry(top, textvariable=self.radius_var, width=10).grid(row=3, column=1, sticky='w')
+        ttk.Label(top, text="Height [mm]:").grid(row=3, column=2, sticky='w', padx=4)
+        self.height_var = tk.StringVar(value='170')
+        ttk.Entry(top, textvariable=self.height_var, width=10).grid(row=3, column=3, sticky='w')
+        ttk.Label(top, text="ROI radius [mm]:").grid(row=4, column=0, sticky='w', padx=4, pady=4)
+        self.roi_var = tk.StringVar(value='20')
+        ttk.Entry(top, textvariable=self.roi_var, width=10).grid(row=4, column=1, sticky='w')
+        ttk.Label(top, text="Conductor material:").grid(
+            row=5, column=0, sticky='w', padx=4, pady=4)
+        self.material_var = tk.StringVar(value='Cu')
+        material_combo = ttk.Combobox(
+            top, textvariable=self.material_var,
+            values=[*CONDUCTOR_MATERIAL_RESISTIVITY, 'Custom'],
+            state='readonly', width=8,
+        )
+        material_combo.grid(row=5, column=1, sticky='w')
+        material_combo.bind(
+            '<<ComboboxSelected>>', lambda _event: self._on_material_changed())
+        ttk.Label(top, text="Resistivity [ohm.m]:").grid(
+            row=5, column=2, sticky='w', padx=4)
+        self.resistivity_var = tk.StringVar(
+            value=f"{CONDUCTOR_MATERIAL_RESISTIVITY['Cu']:.3g}")
+        ttk.Entry(top, textvariable=self.resistivity_var, width=10).grid(
+            row=5, column=3, sticky='w')
 
         # File inputs (per action)
         self.file_frame = ttk.LabelFrame(self, text="Files", padding=8)
@@ -108,12 +139,20 @@ class StandalonePanel(ttk.Frame):
             self.input_stl_var.set('')
         # labels handled by context; user fills what is relevant
 
+    def _on_material_changed(self):
+        resistivity = CONDUCTOR_MATERIAL_RESISTIVITY.get(self.material_var.get())
+        if resistivity is not None:
+            self.resistivity_var.set(f'{resistivity:.3g}')
+
     def _pick(self, which):
         path = filedialog.askopenfilename(
             title=self.root.tr("Select STL"),
             filetypes=[("STL", "*.stl"), (self.root.tr("All files"), "*.*")])
         if path:
             self.input_stl_var.set(path)
+            inferred_axis = infer_gradient_axis(path)
+            if inferred_axis is not None:
+                self.axis_var.set(inferred_axis)
 
     def _on_run(self):
         out_dir = self.get_output_dir()
@@ -122,11 +161,24 @@ class StandalonePanel(ttk.Frame):
                                    self.root.tr("Select an output directory first."))
             return
         action = self.action_var.get()
+        input_stl = self.input_stl_var.get().strip()
+        inferred_axis = infer_gradient_axis(input_stl) if input_stl else None
+        if inferred_axis is not None:
+            self.axis_var.set(inferred_axis)
         try:
             cfg = Config(gradient_axis=self.axis_var.get(), show_plots=False)
             cfg.tikhonov_factor = float(self.tikhonov_var.get())
             cfg.num_levels = int(self.levels_var.get())
             cfg.cylinder.radius = mm_to_m(self.radius_var.get())
+            cfg.cylinder.height = mm_to_m(self.height_var.get())
+            roi_radius = mm_to_m(self.roi_var.get())
+            cfg.target.rx = cfg.target.ry = cfg.target.rz = roi_radius
+            resistivity = float(self.resistivity_var.get())
+            if not math.isfinite(resistivity) or resistivity <= 0:
+                raise ValueError(self.root.tr(
+                    "Resistivity must be a positive number."))
+            cfg.fasthenry.material = self.material_var.get()
+            cfg.fasthenry.specific_conductivity = resistivity
             cfg.output_dir = out_dir
             if action == 'shell':
                 label = self.shell_pair_var.get().strip()
@@ -146,17 +198,15 @@ class StandalonePanel(ttk.Frame):
                 return out_dir, overlap
             elif action == 'leads':
                 from coilgen.leads import run_leads
-                in_stl = self.input_stl_var.get().strip()
-                if not in_stl or not os.path.isfile(in_stl):
+                if not input_stl or not os.path.isfile(input_stl):
                     raise FileNotFoundError(self.root.tr("Select a valid wire STL."))
-                paths = run_leads(cfg, input_stl=in_stl)
+                paths = run_leads(cfg, input_stl=input_stl)
                 return paths, None
             else:  # shell
                 from coilgen.shell import run_shell
-                in_stl = self.input_stl_var.get().strip()
-                if not in_stl or not os.path.isfile(in_stl):
+                if not input_stl or not os.path.isfile(input_stl):
                     raise FileNotFoundError(self.root.tr("Select a valid with-leads STL."))
-                out_dir2, shell_paths = run_shell(cfg, wire_with_leads_stl=in_stl,
+                out_dir2, shell_paths = run_shell(cfg, wire_with_leads_stl=input_stl,
                                                   output_dir=out_dir)
                 return shell_paths, None
 

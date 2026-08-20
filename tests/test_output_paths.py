@@ -13,6 +13,14 @@ def test_wire_name_does_not_repeat_internal_axis():
     assert paths.WIRE_CAD_FILENAME == '{project}_wire_{part_index}.stl'
 
 
+def test_physical_axis_is_inferred_from_generated_and_derived_names():
+    assert paths.infer_gradient_axis(
+        r'C:\results\Gradient_Gx_tk2500_lvl12_wire_0.stl') == 'x'
+    assert paths.infer_gradient_axis(
+        '/results/Gradient_GZ_tk10_lvl5_wire_0_with_leads.stl') == 'z'
+    assert paths.infer_gradient_axis('/results/my_wire.stl') is None
+
+
 def test_resolve_wire_prefers_canonical_name(tmp_path: Path):
     canonical = tmp_path / f'{STEM}_wire_0.stl'
     legacy = tmp_path / f'{STEM}_wire_0_y.stl'
