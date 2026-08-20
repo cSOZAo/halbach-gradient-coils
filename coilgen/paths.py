@@ -24,6 +24,12 @@ PIPELINE_OUTPUT_BASE = os.path.join(PROJECT_ROOT, 'resultados', 'pipeline')
 ACTIVE_STEM_FILE = '.active_project_stem'
 
 _SUFFIX_RE = re.compile(r'\(\d+\)$')
+_WITH_LEADS_RE = re.compile(r'_with_leads(?:\(\d+\))?$')
+
+
+def strip_with_leads_suffix(text: str) -> str:
+    """Drop a trailing ``_with_leads`` tag (with optional ``(n)``) from a stem."""
+    return _WITH_LEADS_RE.sub('', text)
 
 
 def dir_has_outputs(path: str) -> bool:
@@ -220,9 +226,8 @@ def resolve_wire_stl_path(
 
 def derive_align_wire_path(subtract_path: str) -> str:
     """Return the coil-only STL path paired with a *_with_leads* subtract STL."""
-    import re
     base, ext = os.path.splitext(subtract_path)
-    coil_only = re.sub(r'_with_leads(?:\(\d+\))?$', '', base) + ext
+    coil_only = strip_with_leads_suffix(base) + ext
     if os.path.isfile(coil_only):
         return coil_only
     legacy = base[:-len('_with_leads')] + ext if base.endswith('_with_leads') else base

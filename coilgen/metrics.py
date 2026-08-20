@@ -19,6 +19,7 @@ from typing import Any, Dict
 
 import numpy as np
 
+from .formatting import fmt_value
 from .geometry import internal_field_axis
 
 
@@ -38,18 +39,6 @@ def _sum_finite_or_nan(values) -> float:
 
 def _g(obj: Any, name: str):
     return getattr(obj, name, None) if obj is not None else None
-
-
-def _fmt(val: Any, fmt: str = '.6g') -> str:
-    """Format helper that tolerates None / NaN."""
-    if val is None:
-        return 'n/a'
-    try:
-        if isinstance(val, (float, np.floating)) and not np.isfinite(val):
-            return 'n/a'
-        return format(val, fmt)
-    except (TypeError, ValueError):
-        return str(val)
 
 
 def compute_metrics(solution,
@@ -168,43 +157,43 @@ def compute_metrics(solution,
             fh.write(f"{key:<32} = {value}\n")
 
         fh.write("\n[REGRESSION ON REALIZED FIELD]\n")
-        fh.write(f"slope_mT_per_m_per_A          = {_fmt(slope_mTmA)}\n")
-        fh.write(f"intercept_mT_per_A            = {_fmt(intercept)}\n")
-        fh.write(f"rmse_residual_mT_per_A        = {_fmt(rmse_mTA)}\n")
-        fh.write(f"rmse_per_range_mT_per_m_per_A = {_fmt(rmse_gradient_mTmA)}\n")
-        fh.write(f"coord_range_m                 = {_fmt(coord_range)}\n")
+        fh.write(f"slope_mT_per_m_per_A          = {fmt_value(slope_mTmA)}\n")
+        fh.write(f"intercept_mT_per_A            = {fmt_value(intercept)}\n")
+        fh.write(f"rmse_residual_mT_per_A        = {fmt_value(rmse_mTA)}\n")
+        fh.write(f"rmse_per_range_mT_per_m_per_A = {fmt_value(rmse_gradient_mTmA)}\n")
+        fh.write(f"coord_range_m                 = {fmt_value(coord_range)}\n")
         fh.write(f"n_target_points               = {coord_grad.size}\n")
 
         fh.write("\n[pyCoilGen FIELD ERRORS]\n")
-        fh.write(f"max_rel_err_layout_vs_target_pct  = {_fmt(max_rel_err_layout)}\n")
-        fh.write(f"mean_rel_err_layout_vs_target_pct = {_fmt(mean_rel_err_layout)}\n")
-        fh.write(f"max_rel_err_loops_vs_target_pct   = {_fmt(max_rel_err_loops)}\n")
-        fh.write(f"mean_rel_err_loops_vs_target_pct  = {_fmt(mean_rel_err_loops)}\n")
-        fh.write(f"opt_current_layout_A              = {_fmt(opt_current_layout)}\n")
+        fh.write(f"max_rel_err_layout_vs_target_pct  = {fmt_value(max_rel_err_layout)}\n")
+        fh.write(f"mean_rel_err_layout_vs_target_pct = {fmt_value(mean_rel_err_layout)}\n")
+        fh.write(f"max_rel_err_loops_vs_target_pct   = {fmt_value(max_rel_err_loops)}\n")
+        fh.write(f"mean_rel_err_loops_vs_target_pct  = {fmt_value(mean_rel_err_loops)}\n")
+        fh.write(f"opt_current_layout_A              = {fmt_value(opt_current_layout)}\n")
 
         fh.write("\n[pyCoilGen GRADIENT (target direction)]\n")
-        fh.write(f"mean_gradient_mT_per_m_per_A = {_fmt(mean_grad_target)}\n")
-        fh.write(f"std_gradient_mT_per_m_per_A  = {_fmt(std_grad_target)}\n")
+        fh.write(f"mean_gradient_mT_per_m_per_A = {fmt_value(mean_grad_target)}\n")
+        fh.write(f"std_gradient_mT_per_m_per_A  = {fmt_value(std_grad_target)}\n")
 
         fh.write("\n[WIRE LENGTH]\n")
-        fh.write(f"total_wire_length_m_stored      = {_fmt(total_wire_length_stored)}\n")
-        fh.write(f"total_wire_length_m_recomputed  = {_fmt(total_wire_length_computed)}\n")
+        fh.write(f"total_wire_length_m_stored      = {fmt_value(total_wire_length_stored)}\n")
+        fh.write(f"total_wire_length_m_recomputed  = {fmt_value(total_wire_length_computed)}\n")
         for i, (s, c) in enumerate(zip(wire_lengths_stored, wire_lengths_computed)):
-            fh.write(f"part_{i}_wire_length_m_stored      = {_fmt(s)}\n")
-            fh.write(f"part_{i}_wire_length_m_recomputed  = {_fmt(c)}\n")
+            fh.write(f"part_{i}_wire_length_m_stored      = {fmt_value(s)}\n")
+            fh.write(f"part_{i}_wire_length_m_recomputed  = {fmt_value(c)}\n")
 
         fh.write("\n[ELECTRICAL METRICS]\n")
-        fh.write(f"total_ohmian_resistance_ohm       = {_fmt(total_ohmian_resistance)}\n")
-        fh.write(f"total_fasthenry_resistance_ohm    = {_fmt(total_fasthenry_resistance)}\n")
+        fh.write(f"total_ohmian_resistance_ohm       = {fmt_value(total_ohmian_resistance)}\n")
+        fh.write(f"total_fasthenry_resistance_ohm    = {fmt_value(total_fasthenry_resistance)}\n")
         fh.write(f"total_fasthenry_inductance_H_sum_of_parts = "
-                 f"{_fmt(total_fasthenry_inductance_sum)}\n")
+                 f"{fmt_value(total_fasthenry_inductance_sum)}\n")
         for item in electrical_metrics:
             idx = item['part_index']
-            fh.write(f"part_{idx}_coil_length_m              = {_fmt(item['coil_length_m'])}\n")
-            fh.write(f"part_{idx}_ohmian_resistance_ohm      = {_fmt(item['ohmian_resistance_ohm'])}\n")
-            fh.write(f"part_{idx}_fasthenry_resistance_ohm   = {_fmt(item['fasthenry_resistance_ohm'])}\n")
-            fh.write(f"part_{idx}_fasthenry_inductance_H     = {_fmt(item['fasthenry_inductance_H'])}\n")
-            fh.write(f"part_{idx}_fasthenry_cross_section_m2 = {_fmt(item['fasthenry_cross_section_m2'])}\n")
+            fh.write(f"part_{idx}_coil_length_m              = {fmt_value(item['coil_length_m'])}\n")
+            fh.write(f"part_{idx}_ohmian_resistance_ohm      = {fmt_value(item['ohmian_resistance_ohm'])}\n")
+            fh.write(f"part_{idx}_fasthenry_resistance_ohm   = {fmt_value(item['fasthenry_resistance_ohm'])}\n")
+            fh.write(f"part_{idx}_fasthenry_inductance_H     = {fmt_value(item['fasthenry_inductance_H'])}\n")
+            fh.write(f"part_{idx}_fasthenry_cross_section_m2 = {fmt_value(item['fasthenry_cross_section_m2'])}\n")
 
     return {
         'gradient_axis': gradient_axis,
@@ -251,9 +240,9 @@ def print_metrics_summary(metrics: Dict[str, Any]) -> None:
           f"   (per part: {[f'{x:.4f}' for x in metrics['wire_lengths_stored']]})")
     print(f"  Wire length (recomputed): {metrics['total_wire_length_computed']:.4f}  m"
           f"   (per part: {[f'{x:.4f}' for x in metrics['wire_lengths_computed']]})")
-    print(f"  Ohmic R estimate       : {_fmt(metrics['total_ohmian_resistance'])}  ohm")
-    print(f"  FastHenry R            : {_fmt(metrics['total_fasthenry_resistance'])}  ohm")
-    print(f"  FastHenry L (part sum) : {_fmt(metrics['total_fasthenry_inductance'])}  H")
-    print(f"  Mean rel err layout    : {_fmt(metrics['mean_rel_err_layout_pct'])} %")
+    print(f"  Ohmic R estimate       : {fmt_value(metrics['total_ohmian_resistance'])}  ohm")
+    print(f"  FastHenry R            : {fmt_value(metrics['total_fasthenry_resistance'])}  ohm")
+    print(f"  FastHenry L (part sum) : {fmt_value(metrics['total_fasthenry_inductance'])}  H")
+    print(f"  Mean rel err layout    : {fmt_value(metrics['mean_rel_err_layout_pct'])} %")
     print("-" * 70)
     print(f"  Metrics written to     : {metrics['metrics_path']}")

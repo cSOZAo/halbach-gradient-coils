@@ -11,22 +11,17 @@ from __future__ import annotations
 import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from typing import Optional
 
-from coilgen.config import Config, apply_custom_shell_dims, list_shell_pairs
+from coilgen.config import Config, apply_custom_shell_dims
 from .runner import WorkerRunner
 from .units import mm_to_m
+from .widgets import (
+    PanelBase, build_log_box, build_run_bar, require_output_dir,
+    shell_pair_choices, show_failure, show_invalid_params,
+)
 
 
-class StandalonePanel(ttk.Frame):
-    def __init__(self, master, get_output_dir, set_output_dir, root):
-        super().__init__(master)
-        self.get_output_dir = get_output_dir
-        self.set_output_dir = set_output_dir
-        self.root = root
-        self.runner: Optional[WorkerRunner] = None
-        self._build()
-
+class StandalonePanel(PanelBase):
     def _build(self):
         top = ttk.LabelFrame(self, text="Standalone (un paso)", padding=10)
         top.pack(fill='x', padx=8, pady=6)
@@ -65,11 +60,7 @@ class StandalonePanel(ttk.Frame):
         ttk.Entry(self.file_frame, textvariable=self.input_stl_var, width=50).grid(row=0, column=1, sticky='we', padx=4)
         ttk.Button(self.file_frame, text="Examinar...", command=lambda: self._pick('input')).grid(row=0, column=2, padx=4)
 
-        self._shell_pairs = list_shell_pairs()
-        self._shell_pair_by_label = {label: (a, b) for label, a, b in self._shell_pairs}
-        pair_labels = [label for label, _, _ in self._shell_pairs]
-        default_pair = pair_labels[1] if len(pair_labels) > 1 else (
-            pair_labels[0] if pair_labels else '')
+        self._shell_pair_by_label, pair_labels, default_pair = shell_pair_choices()
         self.shell_pair_var = tk.StringVar(value=default_pair)
         ttk.Label(self.file_frame, text="Par STL (assets/shells):").grid(
             row=1, column=0, sticky='w', padx=4, pady=4)
@@ -83,19 +74,8 @@ class StandalonePanel(ttk.Frame):
         self._refresh()
 
         # Run + log
-        bar = ttk.Frame(self)
-        bar.pack(fill='x', padx=8, pady=4)
-        ttk.Button(bar, text="Correr paso", command=self._on_run).pack(side='left')
-        self.progress = ttk.Progressbar(bar, mode='determinate', maximum=100, length=300)
-        self.progress.pack(side='left', padx=10)
-
-        log_frame = ttk.LabelFrame(self, text="Log", padding=4)
-        log_frame.pack(fill='both', expand=True, padx=8, pady=6)
-        self.log_text = tk.Text(log_frame, height=16, wrap='word')
-        self.log_text.pack(side='left', fill='both', expand=True)
-        sb = ttk.Scrollbar(log_frame, command=self.log_text.yview)
-        sb.pack(side='right', fill='y')
-        self.log_text.configure(yscrollcommand=sb.set)
+        self.progress = build_run_bar(self, "Correr paso", self._on_run)
+        self.log_text = build_log_box(self, height=16)
 
         self.runner = WorkerRunner(self.log_text, self.progress, self.root)
 
@@ -115,10 +95,8 @@ class StandalonePanel(ttk.Frame):
             self.input_stl_var.set(path)
 
     def _on_run(self):
-        out_dir = self.get_output_dir()
+        out_dir = require_output_dir(self.get_output_dir)
         if not out_dir:
-            messagebox.showwarning("Falta directorio",
-                                   "Seleccione un directorio de salida primero.")
             return
         action = self.action_var.get()
         try:
@@ -135,7 +113,7 @@ class StandalonePanel(ttk.Frame):
                         "No hay un par STL seleccionado en assets/shells.")
                 apply_custom_shell_dims(cfg, pair[0], pair[1])
         except (ValueError, KeyError) as exc:
-            messagebox.showerror("Parametros invalidos", str(exc))
+            show_invalid_params(exc)
             return
 
         def _target():
@@ -161,7 +139,7 @@ class StandalonePanel(ttk.Frame):
 
         def _on_done(result, err):
             if err is not None:
-                messagebox.showerror("Standalone", f"Fallo: {err}")
+                show_failure("Standalone", err)
             else:
                 payload, overlap = result
                 msg = f"Listo.\n{payload}"

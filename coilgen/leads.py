@@ -60,20 +60,8 @@ _P = SimpleNamespace()
 # Geometry helpers (axis-agnostic; all use axis_hat)
 # ---------------------------------------------------------------------------
 
-def _axial_coord(points, axis_hat):
-    """Axial coordinate(s) along *axis_hat* (scalar or 1-D array)."""
-    return np.asarray(points) @ axis_hat
-
-
-def _radial_vec(points, axis_hat):
-    pts = np.asarray(points, dtype=float)
-    if pts.ndim == 1:
-        return pts - _axial_coord(pts, axis_hat) * axis_hat
-    return pts - np.outer(_axial_coord(pts, axis_hat), axis_hat)
-
-
 def _radial_hat(point, axis_hat):
-    radial = _radial_vec(point, axis_hat)
+    radial = geo.radial_vec(point, axis_hat)
     n = np.linalg.norm(radial)
     if n < 1e-12:
         seed = np.array([0.0, 0.0, 1.0])
@@ -87,7 +75,7 @@ def _radial_hat(point, axis_hat):
 def _snap_to_shell(point, axis_hat, shell_radius):
     """Project *point* onto the cylindrical shell at *shell_radius*."""
     pt = np.asarray(point, dtype=float)
-    axial = _axial_coord(pt, axis_hat) * axis_hat
+    axial = geo.axial_coord(pt, axis_hat) * axis_hat
     radial = pt - axial
     r = np.linalg.norm(radial)
     if r < 1e-12:
@@ -102,21 +90,6 @@ def _tangent_offset(vec, at_point, axis_hat):
     r_hat = _radial_hat(at_point, axis_hat)
     v = np.asarray(vec, dtype=float)
     return v - np.dot(v, r_hat) * r_hat
-
-
-def _unit(vec, fallback=None):
-    """Return a normalized vector, or a normalized fallback if degenerate."""
-    v = np.asarray(vec, dtype=float)
-    n = np.linalg.norm(v)
-    if n > 1e-12:
-        return v / n
-    if fallback is None:
-        raise ValueError("Cannot normalize a degenerate vector without fallback.")
-    fb = np.asarray(fallback, dtype=float)
-    fn = np.linalg.norm(fb)
-    if fn < 1e-12:
-        raise ValueError("Fallback vector is also degenerate.")
-    return fb / fn
 
 
 def _surface_frame(center, ref_center, vertices, axis_hat, tangent_radius,
@@ -134,7 +107,7 @@ def _surface_frame(center, ref_center, vertices, axis_hat, tangent_radius,
 
     if np.linalg.norm(t_hat) < 1e-12 and fallback_tangent is not None:
         t_hat = _tangent_offset(fallback_tangent, center, axis_hat)
-    t_hat = _unit(t_hat, fallback_tangent if fallback_tangent is not None else axis_hat)
+    t_hat = geo.unit_vector(t_hat, fallback_tangent if fallback_tangent is not None else axis_hat)
 
     away = _tangent_offset(np.asarray(center) - np.asarray(ref_center), center, axis_hat)
     if np.linalg.norm(away) > 1e-9:
@@ -143,7 +116,7 @@ def _surface_frame(center, ref_center, vertices, axis_hat, tangent_radius,
     elif fallback_tangent is not None and np.dot(t_hat, fallback_tangent) < 0.0:
         t_hat = -t_hat
 
-    b_hat = _unit(np.cross(t_hat, n_hat), np.cross(axis_hat, n_hat))
+    b_hat = geo.unit_vector(np.cross(t_hat, n_hat), np.cross(axis_hat, n_hat))
     return n_hat, t_hat, b_hat
 
 
@@ -152,7 +125,7 @@ def _project_exit_tangent(exit_dir, at_point, axis_hat):
     tangent = _tangent_offset(exit_dir, at_point, axis_hat)
     if np.linalg.norm(tangent) < 1e-12:
         tangent = _tangent_offset(axis_hat, at_point, axis_hat)
-    return _unit(tangent, axis_hat)
+    return geo.unit_vector(tangent, axis_hat)
 
 
 def _route_frame(center, ref_center, exit_dir, axis_hat, wire_tangent):
@@ -165,7 +138,7 @@ def _route_frame(center, ref_center, exit_dir, axis_hat, wire_tangent):
     if np.linalg.norm(side_dir) < 1e-9:
         side_dir = _tangent_offset(wire_tangent, center, axis_hat)
         side_dir = side_dir - np.dot(side_dir, route_dir) * route_dir
-    side_dir = _unit(side_dir, wire_tangent)
+    side_dir = geo.unit_vector(side_dir, wire_tangent)
     return route_dir, side_dir
 
 
@@ -174,8 +147,7 @@ def _estimate_shell_radius(vertices, apex, axis_hat, sample_radius=0.015):
     near = vertices[np.linalg.norm(vertices - apex, axis=1) < sample_radius]
     if len(near) < 8:
         near = vertices[np.argsort(np.linalg.norm(vertices - apex, axis=1))[:64]]
-    radial = np.linalg.norm(_radial_vec(near, axis_hat), axis=1)
-    return float(np.median(radial))
+    return float(np.median(geo.radial_norm(near, axis_hat)))
 
 
 def _pca_tangent(vertices, point, radius):
@@ -413,9 +385,9 @@ def _profile_ring_2d_in_frame(wire_profile, ring_3d, normal, binormal, n_pts):
 def _lead_centerline(p0, tangent, route_dir, tip, exit_tangent, axis_hat,
                      shell_radius, blend, n_steps):
     """Two-stage shell path: toward-gap fillet, then route-aligned exit run."""
-    start_t = _unit(tangent)
-    route_t = _unit(route_dir)
-    end_t = _unit(exit_tangent)
+    start_t = geo.unit_vector(tangent)
+    route_t = geo.unit_vector(route_dir)
+    end_t = geo.unit_vector(exit_tangent)
     p0 = _snap_to_shell(np.asarray(p0, dtype=float), axis_hat, shell_radius)
     tip = _snap_to_shell(np.asarray(tip, dtype=float), axis_hat, shell_radius)
 
@@ -450,7 +422,7 @@ def _lead_centerline(p0, tangent, route_dir, tip, exit_tangent, axis_hat,
 
 def _common_tip(exit_axial, anchor, axis_hat, shell_radius, fan_offset):
     """Tip on the shared exit plane."""
-    radial = _radial_vec(anchor, axis_hat)
+    radial = geo.radial_vec(anchor, axis_hat)
     fan = (_tangent_offset(fan_offset, anchor, axis_hat)
            if np.linalg.norm(fan_offset) > 1e-12 else np.zeros(3))
     tip = float(exit_axial) * axis_hat + radial + fan
@@ -479,7 +451,7 @@ def _find_apex(vertices, lead_dir, axis_hat, sector_ref_dir, sector_angular_half
     wedge is empty, but logs a warning so the misplacement is not silent.
     """
     proj = vertices @ lead_dir
-    radial = _radial_vec(vertices, axis_hat)
+    radial = geo.radial_vec(vertices, axis_hat)
     radial_norm = np.linalg.norm(radial, axis=1)
     safe = radial_norm > 1e-12
     ref = np.asarray(sector_ref_dir, dtype=float)
@@ -509,8 +481,8 @@ def _flood_bridge(mesh, apex_v, apex, axis_hat, circ_unit, gap_axial_length,
     half_loop = cut_loop_length / 2.0
 
     fcen = mesh.triangles_center
-    apex_ax = _axial_coord(apex, axis_hat)
-    in_axial = (np.abs(_axial_coord(fcen, axis_hat) - apex_ax)
+    apex_ax = geo.axial_coord(apex, axis_hat)
+    in_axial = (np.abs(geo.axial_coord(fcen, axis_hat) - apex_ax)
                 < gap_axial_length / 2.0)
     along_loop = (fcen - apex) @ circ_unit
     in_loop = np.abs(along_loop) < half_loop
@@ -570,12 +542,12 @@ def _build_attached_lead(ring_indices, vertices, wire_profile, normal,
     n_path = len(path)
     departure = path[min(n_path - 1, max(1, n_path // 2))]
     mid_i = min(max(1, n_path // 2), n_path - 2)
-    mid_tangent = _unit(path[mid_i + 1] - path[mid_i], route_dir)
+    mid_tangent = geo.unit_vector(path[mid_i + 1] - path[mid_i], route_dir)
 
     _, N, B = _rotation_minimizing_frames(path)
-    first_tangent = _unit(path[1] - path[0], junction_tangent)
+    first_tangent = geo.unit_vector(path[1] - path[0], junction_tangent)
     target_normal = normal - np.dot(normal, first_tangent) * first_tangent
-    target_normal = _unit(target_normal, normal)
+    target_normal = geo.unit_vector(target_normal, normal)
     cos_a = float(np.dot(N[0], target_normal))
     sin_a = float(np.dot(B[0], target_normal))
     angle = np.arctan2(sin_a, cos_a)
@@ -697,7 +669,7 @@ def _standalone_leads_mesh(open_mesh, lead_parts):
 
 
 def _shell_radius_of_points(points, axis_hat):
-    return np.linalg.norm(_radial_vec(np.asarray(points), axis_hat), axis=1)
+    return geo.radial_norm(points, axis_hat)
 
 
 def _verify_result(final_mesh, n_coil_vertices, apex, axis_hat, shell_radius,
@@ -720,8 +692,8 @@ def _verify_result(final_mesh, n_coil_vertices, apex, axis_hat, shell_radius,
     c0, c1 = ring_info[0]['center'], ring_info[1]['center']
     gap = float(np.linalg.norm(c1 - c0))
     loop_gap = abs(float(np.dot(c1 - c0, circ_unit)))
-    rad_gap = float(np.linalg.norm(_radial_vec(c1, axis_hat) - _radial_vec(c0, axis_hat)))
-    ax_gap = abs(_axial_coord(c0, axis_hat) - _axial_coord(c1, axis_hat))
+    rad_gap = float(np.linalg.norm(geo.radial_vec(c1, axis_hat) - geo.radial_vec(c0, axis_hat)))
+    ax_gap = abs(geo.axial_coord(c0, axis_hat) - geo.axial_coord(c1, axis_hat))
     print(f"  Cut gap (loop)    : {loop_gap * 1e3:.1f} mm  "
           f"(cut_loop_length {_P.cut_loop_length * 1e3:.1f} mm)")
     tip_sep = abs(float(np.dot(ring_info[1]['tip'] - ring_info[0]['tip'], circ_unit)))
@@ -729,8 +701,8 @@ def _verify_result(final_mesh, n_coil_vertices, apex, axis_hat, shell_radius,
           f"(tip_fan {_P.tip_fan * 1e3:.1f} mm)")
     print(f"  Cut face geometry : total {gap * 1e3:.1f} mm  "
           f"(axial {ax_gap * 1e3:.1f} mm, radial {rad_gap * 1e3:.1f} mm)")
-    t0_ax = _axial_coord(ring_info[0]['tip'], axis_hat)
-    t1_ax = _axial_coord(ring_info[1]['tip'], axis_hat)
+    t0_ax = geo.axial_coord(ring_info[0]['tip'], axis_hat)
+    t1_ax = geo.axial_coord(ring_info[1]['tip'], axis_hat)
     print(f"  Tip axial coords    : {t0_ax * 1e3:.2f} mm, {t1_ax * 1e3:.2f} mm  "
           f"(delta {abs(t0_ax - t1_ax) * 1e6:.1f} um)")
     for i, info in enumerate(ring_info):
@@ -905,7 +877,7 @@ def run_leads(
     cut_loop_gap = abs(float(np.dot(ring_data[1][1] - ring_data[0][1], circ_unit)))
     print(f"  Measured gap    : {cut_loop_gap * 1e3:.1f} mm at weld points")
 
-    exit_axial = float(_axial_coord(ref_center, axis_hat)
+    exit_axial = float(geo.axial_coord(ref_center, axis_hat)
                        + np.dot(exit_dir, axis_hat) * _P.lead_length)
     tip_anchor = _snap_to_shell(ref_center, axis_hat, shell_radius)
     print(f"  Shared exit plane : {axis_name} = {exit_axial * 1e3:.2f} mm")
@@ -923,7 +895,7 @@ def run_leads(
             _P.tangent_radius, fallback_tangent=fallback,
         )
         toward_gap = _tangent_offset(ref_center - center, center, axis_hat)
-        junction_tangent = _unit(toward_gap, -tangent)
+        junction_tangent = geo.unit_vector(toward_gap, -tangent)
         if np.dot(junction_tangent, -tangent) < 0.0:
             junction_tangent = -junction_tangent
         route_dir, side_dir = _route_frame(center, ref_center, exit_dir,
