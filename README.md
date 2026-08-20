@@ -54,22 +54,22 @@ When modifying geometry, target fields, or field metrics, document which frame e
 
 ## Requirements
 
-- Windows with Python **3.11** (the validated environment).
-- A working C/C++-free Python installation; all required packages are provided as wheels for the validated setup.
+- Windows with 64-bit CPython **3.11, 3.12, 3.13, or 3.14**. Python 3.14.1 is excluded because NetworkX does not support that interpreter patch release; use the newest available 3.14 patch instead.
+- A working C/C++-free Python installation; the pinned dependency set provides Windows wheels for every supported version.
 - FastHenry2 only if resistance and inductance metrics are needed. The pipeline remains usable without it and reports those values as `n/a`.
 
-Python 3.14 is not the baseline for this codebase. Dependency upgrades and Python-modernisation work should be done in a separate branch after preserving the current validated behaviour.
+The supported range is declared in `pyproject.toml` and exercised by the Windows compatibility workflow. Versions outside that range are rejected rather than installed with an untested dependency combination.
 
 ## Installation
 
 ### One-click setup and launch on Windows
 
-Install 64-bit Python **3.11** first, then clone or extract the complete
+Install any supported 64-bit Python version first, then clone or extract the complete
 repository. Double-click `GradientDesign.bat` in the repository root.
 
 On its first run, the launcher:
 
-1. Checks that Python 3.11 is available through the Windows Python Launcher.
+1. Uses the newest compatible interpreter available through the Windows Python Launcher, in the order 3.14, 3.13, 3.12, then 3.11. If the launcher is unavailable, it accepts a compatible `python` on `PATH`.
 2. Creates or repairs `.venv`.
 3. Installs and verifies every dependency in `requirements-project.txt`.
 4. Opens the GUI.
@@ -84,10 +84,12 @@ itself or modifies a global Python environment.
 From the repository root:
 
 ```powershell
-py -3.11 -m venv .venv
+py -3.14 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements-project.txt
 ```
+
+Replace `3.14` with `3.13`, `3.12`, or `3.11` when that is the interpreter you want to use. A virtual environment remains tied to the Python installation that created it; the launcher recreates an incompatible or broken environment automatically.
 
 `requirements-project.txt` installs the local `pyCoilGen` package in editable mode and all application dependencies. This includes `networkx`, `rtree`, and `scikit-image`: they are optional `trimesh` extras, but this pipeline uses them for mesh component splitting, spatial queries, and voxel remeshing respectively. `pytest` is included for verification.
 
@@ -101,7 +103,7 @@ From the repository root, close the GUI and any terminals or Python processes us
 
 ```powershell
 Remove-Item -LiteralPath .venv -Recurse -Force
-py -3.11 -m venv .venv
+py -3.14 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements-project.txt
 ```
@@ -116,7 +118,7 @@ To confirm the installation:
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-The current baseline is 56 passing tests. Two deprecation warnings from SciPy's MATLAB reader are expected and do not fail the suite.
+The current compatibility suite contains 58 passing tests. Two deprecation warnings from SciPy's MATLAB reader are expected and do not fail the suite.
 
 ## Running the application
 

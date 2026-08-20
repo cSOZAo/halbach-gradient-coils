@@ -1,4 +1,4 @@
-"""
+r"""
 Launch the pyCoilGen Tkinter GUI.
 
     .\.venv\Scripts\python.exe halbach_coils\run_gui.py

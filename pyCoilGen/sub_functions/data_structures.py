@@ -86,7 +86,7 @@ class Mesh:
         Clean up the mesh by removing duplicate and unused vertices.
         """
         # Perform simplification operations
-        self.trimesh_obj.remove_duplicate_faces()
+        self.trimesh_obj.update_faces(self.trimesh_obj.unique_faces())
         self.trimesh_obj.remove_unreferenced_vertices()
 
     def __str__(self):

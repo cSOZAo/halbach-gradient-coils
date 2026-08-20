@@ -339,7 +339,7 @@ def _pycoilgen_oval_profile():
     return {
         'template_2d': template,
         'cs_mean': float(radii.mean()),
-        'cs_span': float(radii.ptp()),
+        'cs_span': float(np.ptp(radii)),
         'semi_a': _P.conductor_semi_a,
         'semi_b': _P.conductor_semi_b,
     }
@@ -407,7 +407,7 @@ def _profile_ring_2d_in_frame(wire_profile, ring_3d, normal, binormal, n_pts):
     if len(cut_2d) != n_pts:
         cut_2d = _resample_closed_2d(cut_2d, n_pts)
     radii = np.linalg.norm(oval_2d, axis=1)
-    return oval_2d, float(radii.mean()), float(radii.ptp()), cut_2d
+    return oval_2d, float(radii.mean()), float(np.ptp(radii)), cut_2d
 
 
 def _lead_centerline(p0, tangent, route_dir, tip, exit_tangent, axis_hat,

@@ -20,16 +20,14 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.6",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering",
 ]
 
-requires-python = ">=3.6"
+requires-python = ">=3.11,!=3.14.1,<3.15"
 keywords = [
     "MRI",
     "Magnetic Resonance Imaging",
@@ -41,20 +39,26 @@ keywords = [
     "Coil",
 ]
 dependencies = [
-    "numpy==1.*",
-    "scipy==1.*",
-    "trimesh==3.*",
-    "sympy==1.*",
-    "pillow<=9.5",
-    "matplotlib==3.*",
+    "numpy==2.4.2",
+    "scipy==1.17.0",
+    "trimesh==4.10.1",
+    "sympy==1.14.0",
+    "pillow==12.3.0",
+    "matplotlib==3.11.1",
     # These trimesh extras are required by the application at runtime:
     # split() uses networkx; spatial queries use rtree; voxel remeshing uses
     # scikit-image's marching-cubes implementation.
-    "networkx==3.*",
-    "rtree==1.*",
-    "scikit-image>=0.24,<0.25",
+    "networkx==3.6.1",
+    "rtree==1.4.1",
+    "scikit-image==0.26.0",
+    "manifold3d==3.5.2",
 ]
 dynamic = ["version", "description"]
+
+[project.optional-dependencies]
+test = [
+    "pytest==9.1.1",
+]
 
 [project.urls]
 Home = "https://github.com/kev-m/pyCoilGen"

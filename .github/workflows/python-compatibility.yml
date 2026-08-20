@@ -1,0 +1,37 @@
+name: Python compatibility
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+
+    name: Windows / Python ${{ matrix.python-version }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          architecture: x64
+          cache: pip
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --only-binary=:all: -r requirements-project.txt
+
+      - name: Verify environment
+        run: |
+          python -m pip check
+          python -m compileall -q pyCoilGen halbach_coils
+          python -c "import tkinter, numpy, scipy, trimesh, sympy, PIL, matplotlib, manifold3d, networkx, rtree, skimage"
+          python -c "import halbach_coils.run_pipeline, halbach_coils.gui.main_window"
+
+      - name: Run tests
+        run: python -m pytest -q

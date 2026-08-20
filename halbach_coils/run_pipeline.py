@@ -1,4 +1,4 @@
-"""
+r"""
 End-to-end negative-mold pipeline for belen_santi gradient coils.
 
 Runs (optionally) pyCoilGen, adds lead wires, and carves the Fusion 360 shell
