@@ -166,8 +166,8 @@ class StandalonePanel(ttk.Frame):
                 payload, overlap = result
                 msg = f"Listo.\n{payload}"
                 if overlap is not None and overlap.n_collisions > 0:
-                    msg += (f"\n\nColisiones detectadas: {overlap.n_collisions} "
-                            f"(min {overlap.min_distance_m*1000:.3f} mm).")
+                    msg += (f"\n\nZonas con 3 o más cables: {overlap.n_collisions}. "
+                            f"Máximo en un mismo lugar: {overlap.max_cables} cables.")
                 messagebox.showinfo("Standalone", msg)
 
         self.runner.run(_target, on_done=_on_done)

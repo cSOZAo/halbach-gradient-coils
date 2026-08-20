@@ -3,8 +3,8 @@ Gradient coil design step — port of ``script_belen_santi.m``.
 
 Exposed as :func:`run_gradient` (a function, not a script that runs on import).
 Builds the spherical target-field file, runs pyCoilGen on the rotated cylinder
-mesh, exports the wire STL, computes metrics, and optionally checks for wire
-overlaps.
+mesh, exports the wire STL, computes metrics, and optionally checks for zones
+where three or more wire branches compete for the same two radial layers.
 """
 
 from __future__ import annotations
@@ -223,18 +223,15 @@ def run_gradient(
     if cfg.show_plots:
         _make_plots(metrics, cfg)
 
-    # ----- Wire overlap check ---------------------------------------------
+    # ----- Multi-wire crossing check --------------------------------------
     overlap_report: Optional[OverlapReport] = None
     if (check_overlap if check_overlap is not None else cfg.overlap_warn):
         overlap_report = detect_collisions(solution, cfg)
         if overlap_report.n_collisions > 0:
-            print(f"\n  OVERLAP WARNING: {overlap_report.n_collisions} wire pair(s) "
-                  f"closer than {overlap_report.threshold_m*1000:.2f} mm "
-                  f"(min distance {overlap_report.min_distance_m*1000:.3f} mm).")
+            print(f"\n  MULTI-WIRE WARNING: {overlap_report.n_collisions} congested "
+                  f"location(s); up to {overlap_report.max_cables} cables share one place.")
         else:
-            print(f"\n  Overlap check OK: min wire distance "
-                  f"{overlap_report.min_distance_m*1000:.3f} mm "
-                  f"(threshold {overlap_report.threshold_m*1000:.2f} mm).")
+            print("\n  Multi-wire check OK: no location contains 3 or more cables.")
 
     # ----- Wire radial extent vs analytical shell -------------------------
     try:

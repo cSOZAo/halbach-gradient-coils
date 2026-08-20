@@ -56,9 +56,9 @@ class WorkerRunner:
         self.progress = progress
         self.root = root
         self.log_q: queue.Queue = queue.Queue()
-        self.user_q: queue.Queue = queue.Queue()
         self.worker: Optional[threading.Thread] = None
         self._poll_id = None
+        self._ask_user_callback: Optional[Callable[[str], bool]] = None
         self.stop_requested = threading.Event()
 
     # ----- log draining ---------------------------------------------------
@@ -86,16 +86,24 @@ class WorkerRunner:
 
     def ask_user(self, question: str) -> bool:
         """
-        Called from the worker thread. Puts a request on user_q, then blocks
-        until the main thread answers. The main thread must call
-        ``answer_user()`` from a dialog handler.
+        Called from the worker thread. Schedule the actual Tk dialog on the
+        main thread and block only the worker until the user answers.
         """
-        self.user_q.put(('ask', question))
-        answer = self.user_q.get()  # blocks until answered
-        return bool(answer)
+        callback = self._ask_user_callback
+        if callback is None:
+            return True
+        answered = threading.Event()
+        result = {'value': False}
 
-    def answer_user(self, value: bool):
-        self.user_q.put(bool(value))
+        def _show_dialog():
+            try:
+                result['value'] = bool(callback(question))
+            finally:
+                answered.set()
+
+        self.root.after(0, _show_dialog)
+        answered.wait()
+        return result['value']
 
     # ----- run ------------------------------------------------------------
 
@@ -111,15 +119,17 @@ class WorkerRunner:
         self.start_polling()
 
         kwargs = kwargs or {}
+        self._ask_user_callback = ask_user
 
         def _worker():
             old_stdout, old_stderr = sys.stdout, sys.stderr
             redirect = _StreamRedirect(self.log_q)
             sys.stdout = redirect
             sys.stderr = redirect
-            # If the panel passed an ask_user callback, wire it through.
+            # Wire a thread-safe proxy through to the worker target. The proxy
+            # schedules the Tk messagebox on the main thread.
             if ask_user is not None:
-                kwargs.setdefault('ask_user', ask_user)
+                kwargs.setdefault('ask_user', self.ask_user)
             try:
                 result = target(*args, **kwargs)
                 self.log_q.put('\n>> DONE\n')
@@ -131,6 +141,7 @@ class WorkerRunner:
                     err = exc
                     self.root.after(0, lambda: on_done(None, err))
             finally:
+                self._ask_user_callback = None
                 sys.stdout, sys.stderr = old_stdout, old_stderr
                 redirect.flush()
                 if self.progress is not None:

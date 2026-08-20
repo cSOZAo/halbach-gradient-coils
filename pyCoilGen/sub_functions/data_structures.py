@@ -637,6 +637,13 @@ class CoilPart:
     wire_path: Shape3D = None               # The shape of the wire track (interconnect_among_groups)
     shift_array: np.ndarray = None          # ??? (shift_return_paths) (,)
     points_to_shift: np.ndarray = None      # Array of which points to shift (shift_return_paths) (m,)
+    # Crossing metadata captured before the sweep step removes/resamples path
+    # points.  Each row in crossing_points_uv corresponds to the segment pair
+    # and the two along-track positions in the matching rows below.
+    crossing_points_uv: np.ndarray = None       # (n_crossings, 2)
+    crossing_segments: np.ndarray = None        # (n_crossings, 2)
+    crossing_path_positions: np.ndarray = None  # (n_crossings, 2), metres along path
+    crossing_layer_factors: np.ndarray = None   # (n_crossings, 2), 0 outer / 1 inner
     pcb_tracks: PCBTrack = None             # (generate_cylindrical_pcb_print)
     layout_surface_mesh: Mesh = None        # Layout mesh (create_sweep_along_surface)
     ohmian_resistance: np.ndarray = None    # Surface wire resistance (create_sweep_along_surface)

@@ -297,8 +297,8 @@ class Config:
 
     output_dir: str = ''                       # run output folder
     show_plots: bool = True
-    overlap_warn: bool = True
-    overlap_clearance: float = 1.0             # min gap = clearance * conductor_width
+    overlap_warn: bool = True                  # warn about 3+ cables sharing a zone
+    overlap_clearance: float = 1.0             # multiplier for multi-wire zone footprint
 
     def __post_init__(self) -> None:
         if self.gradient_axis.lower() not in ('x', 'y', 'z'):

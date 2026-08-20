@@ -21,6 +21,7 @@ import glob
 import os
 import shutil
 import sys
+from dataclasses import dataclass
 
 # Make the coilgen package importable when run from the workspace root.
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +33,14 @@ from coilgen.config import Config
 from coilgen.gradient import run_gradient
 from coilgen.leads import run_leads
 from coilgen.shell import run_shell
+
+
+@dataclass(frozen=True)
+class PipelineResult:
+    """Outcome returned to the GUI after the configured pipeline steps."""
+
+    output_dir: str
+    discarded: bool = False
 
 
 def _coil_only_wire_paths(folder: str) -> list[str]:
@@ -103,8 +112,8 @@ def _ensure_wire_exists(cfg: Config, run_dir: str, run_gradient: bool) -> str:
         f"matching an existing run.")
 
 
-def run_pipeline(cfg: Config, should_stop=None) -> str:
-    """Run the configured pipeline steps; returns the run directory.
+def run_pipeline(cfg: Config, should_stop=None, ask_user=None) -> PipelineResult:
+    """Run the configured pipeline steps and return its outcome.
 
     Respects ``cfg.output_dir`` when set (GUI / ``--output-dir``). Only
     allocates a fresh ``unique_run_dir`` under ``resultados/pipeline/`` when
@@ -141,17 +150,27 @@ def run_pipeline(cfg: Config, should_stop=None) -> str:
     if cfg.control.run_gradient:
         if _stop_requested():
             print("  Stop requested before gradient step.")
-            return run_dir
+            return PipelineResult(run_dir)
         print("[1/3] Running pyCoilGen (gradient)...")
-        run_gradient(cfg, output_dir=run_dir, check_overlap=cfg.overlap_warn)
+        _solution, _metrics, collision_report = run_gradient(
+            cfg, output_dir=run_dir, check_overlap=cfg.overlap_warn)
         print()
+        if collision_report is not None and collision_report.n_collisions > 0:
+            question = collision_report.user_question()
+            print(question)
+            if ask_user is not None and not ask_user(question):
+                print("\n  Resultado descartado por el usuario.")
+                print("  No se ejecutarán las etapas de leads ni shell.")
+                return PipelineResult(run_dir, discarded=True)
+            if ask_user is not None:
+                print("\n  El usuario aceptó continuar con el resultado.")
     else:
         _ensure_wire_exists(cfg, run_dir, cfg.control.run_gradient)
 
     if cfg.control.run_leads:
         if _stop_requested():
             print("  Stop requested before leads step.")
-            return run_dir
+            return PipelineResult(run_dir)
         wire_stl = _ensure_wire_exists(cfg, run_dir, cfg.control.run_gradient)
         print("[2/3] Adding lead wires...")
         run_leads(cfg, input_stl=wire_stl)
@@ -160,7 +179,7 @@ def run_pipeline(cfg: Config, should_stop=None) -> str:
     if cfg.control.run_shell:
         if _stop_requested():
             print("  Stop requested before shell step.")
-            return run_dir
+            return PipelineResult(run_dir)
         print("[3/3] Carving shell halves...")
         run_shell(cfg, output_dir=run_dir)
         print()
@@ -168,7 +187,7 @@ def run_pipeline(cfg: Config, should_stop=None) -> str:
     print("=" * 70)
     print("  Pipeline complete.")
     print("=" * 70)
-    return run_dir
+    return PipelineResult(run_dir)
 
 
 def main():

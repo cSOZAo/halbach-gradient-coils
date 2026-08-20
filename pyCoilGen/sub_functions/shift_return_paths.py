@@ -72,6 +72,25 @@ def shift_return_paths(coil_parts: List[CoilPart], input_args):
             # Detect wire crossings
             cross_points, cross_segments = InterX(wire_path_out.uv)
 
+            # Preserve a compact description of the crossings before later
+            # steps delete path points.  The application uses this metadata to
+            # identify three-or-more branches competing for the same location.
+            cross_segments = np.asarray(cross_segments, dtype=int)
+            if cross_segments.size == 0:
+                cross_segments = np.empty((0, 2), dtype=int)
+                coil_part.crossing_points_uv = np.empty((0, 2), dtype=float)
+                coil_part.crossing_path_positions = np.empty((0, 2), dtype=float)
+                coil_part.crossing_layer_factors = np.empty((0, 2), dtype=float)
+            else:
+                cross_segments = cross_segments.reshape(-1, 2)
+                coil_part.crossing_points_uv = intersection_points_for_pairs(
+                    wire_path_out.uv, cross_segments)
+                segment_lengths = np.linalg.norm(np.diff(wire_path_out.v, axis=1), axis=0)
+                point_positions = np.concatenate(([0.0], np.cumsum(segment_lengths)))
+                segment_positions = 0.5 * (point_positions[:-1] + point_positions[1:])
+                coil_part.crossing_path_positions = segment_positions[cross_segments]
+            coil_part.crossing_segments = cross_segments
+
             if cross_segments.size != 0:
                 sorted_crossed_segments = np.sort(np.concatenate((cross_segments[:, 0], cross_segments[:, 1])))
                 neighbors_weight = np.zeros(sorted_crossed_segments.shape)
@@ -129,6 +148,12 @@ def shift_return_paths(coil_parts: List[CoilPart], input_args):
                 arr3 = np.concatenate((np.arange(1, smooth_factors[1] + 1), arr1, arr2))
                 shift_array = np.convolve(points_to_shift, arr3 / smooth_factors[1], mode='same')
                 shift_array[shift_array > 1] = 1
+                coil_part.crossing_layer_factors = layer_factors_for_crossings(
+                    wire_path_out.uv,
+                    cross_segments,
+                    coil_part.crossing_points_uv,
+                    shift_array,
+                )
 
                 for point_ind in range(wire_path_out.uv.shape[1]):
                     if smooth_factors[2] < point_ind < wire_path_out.uv.shape[1] - smooth_factors[2]:
@@ -154,6 +179,59 @@ def shift_return_paths(coil_parts: List[CoilPart], input_args):
             coil_part.points_to_shift = np.zeros(num_points)
 
     return coil_parts
+
+
+def intersection_points_for_pairs(track_uv: np.ndarray,
+                                  segment_pairs: np.ndarray) -> np.ndarray:
+    """Return the 2-D intersection point corresponding to every segment pair."""
+    pairs = np.asarray(segment_pairs, dtype=int)
+    if pairs.size == 0:
+        return np.empty((0, 2), dtype=float)
+    pairs = pairs.reshape(-1, 2)
+
+    p = track_uv[:, pairs[:, 0]].T
+    r = (track_uv[:, pairs[:, 0] + 1] - track_uv[:, pairs[:, 0]]).T
+    q = track_uv[:, pairs[:, 1]].T
+    s = (track_uv[:, pairs[:, 1] + 1] - track_uv[:, pairs[:, 1]]).T
+
+    def cross_2d(a, b):
+        return a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
+
+    denominator = cross_2d(r, s)
+    if np.any(denominator == 0.0):
+        raise ValueError("Crossing segment pair contains parallel segments")
+    t = cross_2d(q - p, s) / denominator
+    return p + t[:, np.newaxis] * r
+
+
+def layer_factors_for_crossings(track_uv: np.ndarray,
+                                segment_pairs: np.ndarray,
+                                crossing_points: np.ndarray,
+                                shift_array: np.ndarray) -> np.ndarray:
+    """Interpolate each crossed branch's radial-layer factor at its crossing."""
+    pairs = np.asarray(segment_pairs, dtype=int)
+    if pairs.size == 0:
+        return np.empty((0, 2), dtype=float)
+    pairs = pairs.reshape(-1, 2)
+    points = np.asarray(crossing_points, dtype=float).reshape(-1, 2)
+    shifts = np.asarray(shift_array, dtype=float)
+    factors = np.empty((len(pairs), 2), dtype=float)
+
+    for pair_index, pair in enumerate(pairs):
+        for branch_index, segment_index in enumerate(pair):
+            start = track_uv[:, segment_index]
+            delta = track_uv[:, segment_index + 1] - start
+            denominator = float(np.dot(delta, delta))
+            if denominator == 0.0:
+                fraction = 0.5
+            else:
+                fraction = float(np.dot(points[pair_index] - start, delta) / denominator)
+                fraction = float(np.clip(fraction, 0.0, 1.0))
+            factors[pair_index, branch_index] = (
+                (1.0 - fraction) * shifts[segment_index]
+                + fraction * shifts[segment_index + 1]
+            )
+    return factors
 
 
 def InterX(L1, *varargin, m_debug=None):

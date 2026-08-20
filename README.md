@@ -10,7 +10,8 @@ The application provides a configuration-driven pipeline for:
 
 1. Creating a cylindrical design mesh and target field.
 2. Optimising a wire layout with `pyCoilGen`.
-3. Checking non-adjacent wire segments for insufficient clearance.
+3. Detecting locations where three or more return-path branches compete for
+   the same two radial cable layers.
 4. Adding lead wires to the coil layout.
 5. Cutting the wire grooves into an STL shell for manufacturing.
 6. Optionally evaluating resistance and inductance through FastHenry2.
@@ -149,7 +150,7 @@ Useful options include:
 --no-plots                  Run without interactive plots.
 --skip-gradient             Reuse an existing wire STL.
 --skip-leads --skip-shell   Generate only the wire layout.
---no-overlap-warn           Disable the clearance warning.
+--no-overlap-warn           Disable the multi-wire congestion warning.
 ```
 
 Each pipeline run uses a unique directory such as `resultados/pipeline/Gy_tk2500_lvl26/`; repeated runs receive a numeric suffix instead of overwriting prior results.
@@ -161,7 +162,7 @@ Each pipeline run uses a unique directory such as `resultados/pipeline/Gy_tk2500
 | Module | Responsibility |
 | --- | --- |
 | `coilgen.gradient` | prepares pyCoilGen arguments, runs optimisation, extracts field metrics |
-| `coilgen.overlap` | checks non-adjacent wire clearance |
+| `coilgen.overlap` | groups pyCoilGen crossings and detects 3+ cables in one zone |
 | `coilgen.leads` | creates and joins lead wires |
 | `coilgen.shell` | produces the grooved shell geometry |
 | `coilgen.sweep` | runs Tikhonov parameter studies |
