@@ -21,7 +21,7 @@ from typing import Optional, Tuple
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
-from matplotlib.patches import Polygon
+from matplotlib.patches import Circle, Polygon
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  — enables projection='3d'
 
 from coilgen.config import (
@@ -934,6 +934,7 @@ class PipelinePanel(ttk.Frame):
         inner_layer_r = design_r + shift
         semi_a = cfg.conductor_semi_a
         semi_b = cfg.conductor_semi_b
+        real_cable_radius = 0.5 * cfg.wire.conductor_width
 
         degenerate = (r_outer <= 0 or r_inner <= 0 or design_r <= 0
                       or wall <= 0 or r_inner >= r_outer or h <= 0)
@@ -1014,6 +1015,7 @@ class PipelinePanel(ttk.Frame):
             (design_r, th_outer, 'out'),      # capa exterior
             (inner_layer_r, th_inner, 'in'),  # capa interior
         )
+        cable_centers = []
         for center_r, th, peel_dir in groove_specs:
             if center_r <= 0:
                 continue
@@ -1031,6 +1033,21 @@ class PipelinePanel(ttk.Frame):
                 ax.add_patch(Polygon(outline, closed=True,
                                      facecolor='none', edgecolor=groove_edge,
                                      linewidth=1.2, zorder=5))
+
+            # Real cable section: electrically circular and independent from
+            # the deformed ellipse used to manufacture the groove.
+            cable_center = (center_r * math.cos(th), center_r * math.sin(th))
+            cable_centers.append(cable_center)
+            cable_fits = real_cable_radius <= min(semi_a, semi_b) + 1e-12
+            ax.add_patch(Circle(
+                cable_center,
+                radius=real_cable_radius,
+                facecolor='#d99058',
+                edgecolor='#6d3217' if cable_fits else '#b71c1c',
+                linewidth=1.25,
+                alpha=0.82,
+                zorder=5.5,
+            ))
 
         # --- Zoom on geometry only; labels use axes-fraction (never clipped) ---
         def _pt(r, th):
@@ -1120,6 +1137,16 @@ class PipelinePanel(ttk.Frame):
             arrowprops=dict(color='#b71c1c', **arrow),
             zorder=6, clip_on=False,
         )
+        if cable_centers:
+            ax.text(
+                0.95, 0.18,
+                self.root.tr(
+                    "● Cable Ø {value:.2f} mm",
+                    value=2.0 * real_cable_radius * 1000.0,
+                ),
+                fontsize=7.5, color='#6d3217', ha='right', va='center',
+                transform=ax.transAxes, zorder=7, clip_on=False,
+            )
         ax.annotate(
             '', xy=p_w1, xytext=p_w0,
             arrowprops=dict(arrowstyle='<->', color='#333333', lw=0.9),
