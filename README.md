@@ -169,6 +169,13 @@ resistivity in ohm.m; choose **Custom** to enter a different material or
 temperature-adjusted value. The resistivity is used by both pyCoilGen's ohmic
 estimate and FastHenry.
 
+The real cable diameter is electrically independent from the groove profile.
+For example, a 2 mm round cable with a 4 mm radial groove height and 2 mm
+groove width produces an elliptical subtraction solid, while resistance still
+uses the real circular area (3.1416 mm²). FastHenry uses an equal-area square
+approximation because its segment primitive is rectangular. Metrics record the
+real area, groove area, and their ratio for traceability.
+
 The GUI has three modes:
 
 - **Pipeline** runs gradient generation, lead creation, and shell cutting in

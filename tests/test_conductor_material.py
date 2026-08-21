@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
+import math
 import sys
 
 import numpy as np
@@ -14,6 +15,9 @@ from halbach_coils.coilgen.config import (
 )
 from halbach_coils.gui.pipeline_panel import PipelinePanel
 from pyCoilGen.sub_functions import calculate_inductance_by_coil_layout as inductance
+from pyCoilGen.sub_functions.create_sweep_along_surface import (
+    electrical_cross_section_area,
+)
 
 
 class _Var:
@@ -50,6 +54,30 @@ def test_material_and_resistivity_are_serialized_for_metrics():
     assert params['specific_conductivity_conductor_ohm_m'] == pytest.approx(2.82e-8)
 
 
+def test_deformed_groove_does_not_change_real_circular_electrical_area():
+    cfg = Config()
+    cfg.wire.conductor_width = 0.002
+    cfg.wire.cross_section_a_frac = 2.0
+    cfg.wire.cross_section_b_frac = 1.0
+
+    assert cfg.electrical_cross_section_area == pytest.approx(math.pi * 1e-6)
+    assert cfg.groove_cross_section_area == pytest.approx(2 * math.pi * 1e-6)
+    assert cfg.groove_area_ratio == pytest.approx(2.0)
+    assert (cfg.fasthenry_conductor_width * cfg.fasthenry_conductor_height
+            == pytest.approx(cfg.electrical_cross_section_area))
+    params = cfg.to_params_dict()
+    assert params['electrical_section_shape'] == 'circle'
+    assert params['groove_to_electrical_area_ratio'] == pytest.approx(2.0)
+
+
+def test_pycoilgen_resistance_area_prefers_real_area_over_swept_groove():
+    args = SimpleNamespace(conductor_cross_section_area=3.14e-6)
+
+    assert electrical_cross_section_area(args, swept_area=6.28e-6) == pytest.approx(3.14e-6)
+    assert electrical_cross_section_area(
+        SimpleNamespace(), swept_area=6.28e-6) == pytest.approx(6.28e-6)
+
+
 def test_gui_material_selection_updates_pipeline_config():
     panel = object.__new__(PipelinePanel)
     panel.material_var = _Var('Al')
@@ -61,6 +89,23 @@ def test_gui_material_selection_updates_pipeline_config():
 
     assert cfg.fasthenry.material == 'Al'
     assert cfg.fasthenry.specific_conductivity == pytest.approx(2.82e-8)
+
+
+def test_gui_converts_real_and_groove_dimensions_to_deformation_factors():
+    panel = object.__new__(PipelinePanel)
+    panel.cw_var = _Var('2')
+    panel.a_var = _Var('4')
+    panel.b_var = _Var('2')
+    panel.root = _Root()
+    cfg = Config()
+
+    panel._apply_wire_geometry(cfg)
+
+    assert cfg.wire.conductor_width == pytest.approx(0.002)
+    assert cfg.wire.cross_section_a_frac == pytest.approx(2.0)
+    assert cfg.wire.cross_section_b_frac == pytest.approx(1.0)
+    assert cfg.groove_radial_height == pytest.approx(0.004)
+    assert cfg.groove_tangential_width == pytest.approx(0.002)
 
 
 @pytest.mark.parametrize('value', ['0', '-1e-8', 'nan', 'inf'])

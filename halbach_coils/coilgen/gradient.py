@@ -168,6 +168,8 @@ def run_gradient(
         'interconnection_cut_width':    cfg.winding.cut_width,
         'conductor_cross_section_width':  cfg.fasthenry_conductor_width,
         'conductor_cross_section_height': cfg.fasthenry_conductor_height,
+        'conductor_cross_section_area':   cfg.electrical_cross_section_area,
+        'conductor_thickness':            cfg.wire.conductor_width,
         'specific_conductivity_conductor': cfg.fasthenry.specific_conductivity,
         'cross_sectional_points':        cfg.cross_sectional_points.tolist(),
         'normal_shift_length':           cfg.normal_shift_length,
@@ -193,6 +195,10 @@ def run_gradient(
     print(f"  FastHenry binary      : {fh_resolved or 'not configured'}")
     print(f"  FastHenry available   : {fh_available}")
     print(f"  Cable height          : {cfg.cable_height*1000:.3f} mm")
+    print(f"  Real circular cable   : {cfg.wire.conductor_width*1000:.3f} mm diameter  "
+          f"({cfg.electrical_cross_section_area*1e6:.4f} mm^2)")
+    print(f"  Deformed groove area  : {cfg.groove_cross_section_area*1e6:.4f} mm^2  "
+          f"(x{cfg.groove_area_ratio:.3f}; geometry only)")
     print(f"  Layer crossing gap    : {cfg.layer_crossing_gap*1000:.3f} mm")
     print(f"  normal_shift_length   : {cfg.normal_shift_length*1000:.3f} mm")
     print(f"  R_GUI (shell outer)   : {cfg.cylinder.radius*1000:.3f} mm")

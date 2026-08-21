@@ -91,7 +91,9 @@ _LEAD_PRESETS = {
 
 @dataclass
 class WireConfig:
-    conductor_width: float = 0.002            # [m] nominal diameter when A=B=1
+    # Real, electrically active round-wire diameter.  The A/B factors below
+    # deform only the swept groove solid used for manufacturing.
+    conductor_width: float = 0.002            # [m] real circular diameter
     cross_section_n: int = 16
     cross_section_a_frac: float = 2.0
     cross_section_b_frac: float = 1.0
@@ -350,6 +352,14 @@ class Config:
         return 2.0 * self.conductor_semi_a
 
     @property
+    def groove_radial_height(self) -> float:
+        return 2.0 * self.conductor_semi_a
+
+    @property
+    def groove_tangential_width(self) -> float:
+        return 2.0 * self.conductor_semi_b
+
+    @property
     def _custom_shell_fixed(self) -> bool:
         return bool(
             self.shell.use_custom_stl
@@ -479,11 +489,29 @@ class Config:
 
     @property
     def fasthenry_conductor_width(self) -> float:
-        return 2.0 * self.conductor_semi_b
+        # FastHenry's segment primitive is rectangular.  A square with the
+        # same area as the real circular cable avoids inheriting groove
+        # deformation while preserving DC resistance.
+        return float(np.sqrt(self.electrical_cross_section_area))
 
     @property
     def fasthenry_conductor_height(self) -> float:
-        return (np.pi / 2.0) * self.conductor_semi_a
+        return float(np.sqrt(self.electrical_cross_section_area))
+
+    @property
+    def electrical_cross_section_area(self) -> float:
+        """Area of the real circular conductor used for electrical metrics."""
+        radius = 0.5 * self.wire.conductor_width
+        return float(np.pi * radius * radius)
+
+    @property
+    def groove_cross_section_area(self) -> float:
+        """Area of the deformed ellipse swept into the manufacturing groove."""
+        return float(np.pi * self.conductor_semi_a * self.conductor_semi_b)
+
+    @property
+    def groove_area_ratio(self) -> float:
+        return self.groove_cross_section_area / self.electrical_cross_section_area
 
     @property
     def cross_sectional_points(self) -> np.ndarray:
@@ -578,9 +606,15 @@ class Config:
             'auto_margin_pct': self.shell.auto_margin_pct,
             'smooth_factor': self.winding.smooth_factor,
             'conductor_width_m': self.wire.conductor_width,
+            'electrical_section_shape': 'circle',
+            'electrical_cross_section_area_m2': self.electrical_cross_section_area,
+            'groove_cross_section_area_m2': self.groove_cross_section_area,
+            'groove_to_electrical_area_ratio': self.groove_area_ratio,
             'conductor_semi_a_m': self.conductor_semi_a,
             'conductor_semi_b_m': self.conductor_semi_b,
             'cable_height_m': self.cable_height,
+            'groove_radial_height_m': self.groove_radial_height,
+            'groove_tangential_width_m': self.groove_tangential_width,
             'cross_section_n': self.wire.cross_section_n,
             'cross_section_a_frac': self.wire.cross_section_a_frac,
             'cross_section_b_frac': self.wire.cross_section_b_frac,

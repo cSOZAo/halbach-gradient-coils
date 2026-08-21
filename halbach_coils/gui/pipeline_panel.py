@@ -206,14 +206,14 @@ class PipelinePanel(ttk.Frame):
         ttk.Entry(form, textvariable=self.levels_var, width=10).grid(row=4, column=3, sticky='w')
 
         # Wire characteristics
-        ttk.Label(form, text="Conductor diameter [mm]:").grid(row=5, column=0, sticky='w', padx=4, pady=4)
+        ttk.Label(form, text="Real cable diameter [mm]:").grid(row=5, column=0, sticky='w', padx=4, pady=4)
         self.cw_var = tk.StringVar(value='2')
         ttk.Entry(form, textvariable=self.cw_var, width=10).grid(row=5, column=1, sticky='w')
-        ttk.Label(form, text="Section A:").grid(row=5, column=2, sticky='w', padx=4)
-        self.a_var = tk.StringVar(value='2.0')
+        ttk.Label(form, text="Groove height [mm]:").grid(row=5, column=2, sticky='w', padx=4)
+        self.a_var = tk.StringVar(value='4')
         ttk.Entry(form, textvariable=self.a_var, width=8).grid(row=5, column=3, sticky='w')
-        ttk.Label(form, text="Section B:").grid(row=6, column=0, sticky='w', padx=4, pady=4)
-        self.b_var = tk.StringVar(value='1.0')
+        ttk.Label(form, text="Groove width [mm]:").grid(row=6, column=0, sticky='w', padx=4, pady=4)
+        self.b_var = tk.StringVar(value='2')
         ttk.Entry(form, textvariable=self.b_var, width=8).grid(row=6, column=1, sticky='w')
         ttk.Label(form, text="Section N:").grid(row=6, column=2, sticky='w', padx=4)
         self.n_var = tk.StringVar(value='16')
@@ -467,8 +467,8 @@ class PipelinePanel(ttk.Frame):
         self.radius_var.set(self._mm_text(cfg.cylinder.radius))
         self.height_var.set(self._mm_text(cfg.cylinder.height))
         self.cw_var.set(self._mm_text(cfg.wire.conductor_width))
-        self.a_var.set(f'{cfg.wire.cross_section_a_frac:g}')
-        self.b_var.set(f'{cfg.wire.cross_section_b_frac:g}')
+        self.a_var.set(self._mm_text(cfg.groove_radial_height))
+        self.b_var.set(self._mm_text(cfg.groove_tangential_width))
         self.n_var.set(str(cfg.wire.cross_section_n))
         self.material_var.set(cfg.fasthenry.material)
         self.resistivity_var.set(f'{cfg.fasthenry.specific_conductivity:.6g}')
@@ -529,6 +529,17 @@ class PipelinePanel(ttk.Frame):
             raise ValueError(self.root.tr("Resistivity must be a positive number."))
         cfg.fasthenry.material = self.material_var.get()
         cfg.fasthenry.specific_conductivity = resistivity
+
+    def _apply_wire_geometry(self, cfg: Config) -> None:
+        diameter = mm_to_m(self.cw_var.get())
+        groove_height = mm_to_m(self.a_var.get())
+        groove_width = mm_to_m(self.b_var.get())
+        if diameter <= 0 or groove_height <= 0 or groove_width <= 0:
+            raise ValueError(self.root.tr(
+                "Cable and groove dimensions must be positive."))
+        cfg.wire.conductor_width = diameter
+        cfg.wire.cross_section_a_frac = groove_height / diameter
+        cfg.wire.cross_section_b_frac = groove_width / diameter
 
     def _toggle_roi(self):
         """Show single R or independent Rx/Ry/Rz according to the checkbox."""
@@ -607,9 +618,7 @@ class PipelinePanel(ttk.Frame):
 
     def _preview_cfg(self) -> Config:
         cfg = Config(gradient_axis=self.axis_var.get(), show_plots=False)
-        cfg.wire.conductor_width = mm_to_m(self.cw_var.get())
-        cfg.wire.cross_section_a_frac = float(self.a_var.get())
-        cfg.wire.cross_section_b_frac = float(self.b_var.get())
+        self._apply_wire_geometry(cfg)
         cfg.wire.cross_section_n = int(self.n_var.get())
         self._apply_material(cfg)
         cfg.shell.auto_margin_pct = float(self.margin_var.get()) / 100.0
@@ -1134,9 +1143,7 @@ class PipelinePanel(ttk.Frame):
         else:
             r = mm_to_m(self.roi_var.get())
             cfg.target.rx = cfg.target.ry = cfg.target.rz = r
-        cfg.wire.conductor_width = mm_to_m(self.cw_var.get())
-        cfg.wire.cross_section_a_frac = float(self.a_var.get())
-        cfg.wire.cross_section_b_frac = float(self.b_var.get())
+        self._apply_wire_geometry(cfg)
         cfg.wire.cross_section_n = int(self.n_var.get())
         self._apply_material(cfg)
         cfg.shell.shell_outer_pad = max(0.0005, 0.65 * cfg.conductor_semi_a)

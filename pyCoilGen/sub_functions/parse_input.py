@@ -269,6 +269,12 @@ def parse_input(parse_cli=True):
     parser.add_argument('--conductor_cross_section_height', type=float, default=0.002,
                         help="Cross-section height of the conductor (for the inductance calculation) in metres")
 
+    # Optional real electrical area, independent from the swept CAD profile.
+    # Zero preserves the historical behaviour of deriving area from
+    # cross_sectional_points.
+    parser.add_argument('--conductor_cross_section_area', type=float, default=0.0,
+                        help="Real conductor area for resistance calculations in square metres")
+
     # Add the conductor conductivity
     parser.add_argument('--specific_conductivity_conductor',
                         type=float, default=0.018e-6, help="Conductor conductivity")

@@ -12,6 +12,12 @@ import logging
 log = logging.getLogger(__name__)
 
 
+def electrical_cross_section_area(input_args, swept_area: float) -> float:
+    """Use an explicit real conductor area, falling back to CAD geometry."""
+    configured = float(getattr(input_args, 'conductor_cross_section_area', 0.0))
+    return configured if configured > 0 else swept_area
+
+
 def create_sweep_along_surface(coil_parts: List[CoilPart], input_args) -> List[CoilPart]:
     """
     Create a volumetric coil body by surface sweep.
@@ -134,8 +140,12 @@ def create_sweep_along_surface(coil_parts: List[CoilPart], input_args) -> List[C
                     f"create_sweep_along_surface: cross_section_area={cross_section_area} "
                     f"is not positive — cross-sectional points may be collinear."
                 )
-            # Calculate the ohmic resistance
-            ohmian_resistance = wire_path.v_length * conductor_resistivity / cross_section_area
+            # Calculate resistance from the real conductor area when supplied.
+            # The swept profile may intentionally be deformed to create a
+            # comfortable manufacturing groove and must not alter R = rho L/A.
+            resistance_area = electrical_cross_section_area(
+                input_args, cross_section_area)
+            ohmian_resistance = wire_path.v_length * conductor_resistivity / resistance_area
 
             # Calculate a radius of the conductor cross section which is later
             # important to avoid intersection between angulated faces
