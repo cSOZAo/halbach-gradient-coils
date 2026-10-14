@@ -224,14 +224,14 @@ def draw_field_figure(figure, data: FieldPlotData, kind: str,
             ax.set_ylabel("Y [mm]")
             ax.set_zlabel("Z [mm]")
             ax.set_box_aspect(np.maximum(spans, max(spans.max() * 0.05, 1.0)))
-            colorbar = figure.colorbar(cloud, ax=ax, fraction=0.04, pad=0.17,
+            colorbar = figure.colorbar(cloud, ax=ax, fraction=0.035, pad=0.12,
                                       shrink=0.7)
             colorbar.set_label(text(colorbar_label), fontsize=9)
             colorbar.ax.tick_params(labelsize=8)
         figure.text(0.5, 0.025,
                     text("Sampled ROI points; no interpolation. Physical axes match the STL viewer."),
                     ha="center", fontsize=9)
-        figure.subplots_adjust(left=0.02, right=0.96, bottom=0.1, top=0.83, wspace=0.26)
+        figure.subplots_adjust(left=0.02, right=0.88, bottom=0.1, top=0.83, wspace=0.42)
     return figure
 
 

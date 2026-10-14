@@ -60,4 +60,6 @@ Antes de fijar la geometría se revisarán los ejemplos de Fusion: tipo de encaj
 - Seis ejecuciones reales con malla pequeña exportaron STL y métricas para las seis direcciones de B0.
 - Ejecución integrada de Pipeline con Gx/B0 +Y, ROI elipsoidal y orden de Gauss 3: tres PNG y NPZ que se reabre; pendiente 0.507339 mT/(m·A), valor de prueba con malla gruesa.
 - Pruebas de interfaz Tk, idioma español, parámetros, ayuda, presets y actualización de vista previa.
-- La validación final del clon principal se registra al cierre de esta entrega. No se ejecutó una campaña completa de fabricación ni una simulación electromagnética independiente.
+- En el clon principal y su entorno nuevo: **177 pruebas aprobadas**, sin omisiones; dos advertencias de deprecación de fixtures antiguos de SciPy. `pip check` sin incompatibilidades. El punto de entrada real `run_gui.py` abre y cierra correctamente mediante el bucle de eventos de Tk.
+- Flujo completo con resolución habitual (200 × 10, ROI 8 × 28²), Gx/B0 +Y, 12 niveles, terminales y molde automático: completado. STL del molde cerrado (`watertight=True`), tres PNG y NPZ guardados en `halbach_coils/resultados/verificacion_completa_b0_y`. FastHenry desactivado en esta comprobación; pendiente del bobinado 2.2057 mT/(m·A). Persistió la advertencia heredada de puntos de corte coincidentes, sin impedir terminar.
+- No se ejecutó una campaña de fabricación ni una simulación electromagnética independiente.
