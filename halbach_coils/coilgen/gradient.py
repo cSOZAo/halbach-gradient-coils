@@ -132,7 +132,7 @@ def run_gradient(
         'normal_shift_length':           cfg.normal_shift_length,
         'normal_shift_smooth_factors':   cfg.winding.normal_shift_smooth,
         'skip_postprocessing':          False,
-        'skip_inductance_calculation':  not cfg.fasthenry.enabled,
+        'skip_inductance_calculation':  True,
         'fasthenry_bin':                fh_resolved,
         'smooth_factor':                cfg.winding.smooth_factor,
         'make_cylindrical_pcb':         False,
@@ -143,6 +143,7 @@ def run_gradient(
         'field_shape_function':         internal_axis,
         'b_0_direction':                cfg.b0_vector.tolist(),
         'project_name':                 project_stem,
+        'save_solution':                False,
     }
     arg_dict.update(cfg.advanced.to_coilgen_args())
 
@@ -181,13 +182,22 @@ def run_gradient(
     metrics = compute_metrics(
         solution, cfg.gradient_axis, output_dir, project_stem,
         cfg.to_params_dict(),
-        fasthenry_enabled=cfg.fasthenry.enabled,
+        fasthenry_enabled=False,
         fasthenry_available=fh_available,
     )
     print_metrics_summary(metrics)
     from .field_plots import save_field_plots
     metrics['field_plots'] = save_field_plots(
         solution, output_dir, cfg.gradient_axis, cfg.b0_direction, project_stem)
+    wire_path = _paths.resolve_wire_stl_path(
+        output_dir, cfg.gradient_axis, cfg.tikhonov_factor, cfg.num_levels)
+    from .leads import save_lead_reference
+    from .design_state import save_design_state
+    reference_path = save_lead_reference(solution, cfg, wire_path)
+    sidecars = [metrics['field_plots']['data_path']]
+    if reference_path:
+        sidecars.append(reference_path)
+    save_design_state(wire_path, cfg, sidecar_paths=sidecars)
 
     # ----- Multi-wire crossing check --------------------------------------
     overlap_report: Optional[OverlapReport] = None

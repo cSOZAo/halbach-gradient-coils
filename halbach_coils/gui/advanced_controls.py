@@ -12,6 +12,7 @@ from coilgen.advanced import PARAMETERS, apply_advanced_values, config_values, d
 _TEXT_ES = {
     'Advanced CoilGen parameters': 'Parámetros avanzados de CoilGen',
     'Show more parameters': 'Mostrar más parámetros',
+    'Restore defaults': 'Volver a los valores por defecto',
     'Mesh': 'Malla',
     'Target ROI': 'ROI objetivo',
     'Winding': 'Trazado',
@@ -81,8 +82,12 @@ class AdvancedControls(ttk.LabelFrame):
         self._valid = True
 
         self.expanded = tk.BooleanVar(self, value=False)
-        self.toggle = ttk.Checkbutton(self, variable=self.expanded, command=self._toggle)
-        self.toggle.pack(anchor='w')
+        header = ttk.Frame(self)
+        header.pack(fill='x')
+        self.toggle = ttk.Checkbutton(header, variable=self.expanded, command=self._toggle)
+        self.toggle.pack(side='left')
+        self.reset_button = ttk.Button(header, command=self.reset_defaults)
+        self.reset_button.pack(side='right', padx=(6, 0))
         self.body = ttk.Frame(self)
         self.tabs = ttk.Notebook(self.body)
         self.tabs.pack(fill='x')
@@ -157,6 +162,14 @@ class AdvancedControls(ttk.LabelFrame):
         self._loading = False
         self.retranslate()
 
+    def reset_defaults(self):
+        """Reset only this catalog; retain the main design and B0 selections."""
+        cfg = copy.deepcopy(self._base_cfg)
+        apply_advanced_values(cfg, {spec.path: copy.deepcopy(spec.default)
+                                    for spec in PARAMETERS})
+        self.load_config(cfg)
+        self._changed()
+
     def apply_to(self, cfg):
         values = {path: variable.get() for path, variable in self.variables.items()}
         try:
@@ -202,6 +215,7 @@ class AdvancedControls(ttk.LabelFrame):
     def retranslate(self):
         self.configure(text=self._tr('Advanced CoilGen parameters'))
         self.toggle.configure(text=self._tr('Show more parameters'))
+        self.reset_button.configure(text=self._tr('Restore defaults'))
         for spec in PARAMETERS:
             self._labels[spec.path].configure(text=spec.label(self._language()))
         for group, title in self.groups.values():

@@ -14,7 +14,7 @@ Workflow
 Coordinate frame
 ----------------
 All target coordinates, fields and exported geometry use the same physical
-XYZ frame. The default cylinder rotation R_y(pi/2) puts the bore along +X.
+XYZ frame. The default cylinder axis is physical +Z.
 B0 defaults to +Y and is selectable; Gx/Gy/Gz mean d(B dot B0_hat)/d(x/y/z).
 """
 
@@ -48,8 +48,8 @@ CONDUCTOR_MATERIAL_RESISTIVITY = {
 # (Z > 0.10 and |Y| < 0.05) tuned for Gy. Here the apex is selected in
 # *cylindrical* coordinates relative to the bore axis: an angular wedge in
 # the radial plane around ``sector_ref_dir`` plus the axial projection onto
-# ``lead_direction``. Leads always exit along the bore axis (±X after the
-# R_y(pi/2) rotation); only the angular station changes per gradient axis.
+# ``lead_direction``. Leads exit along the physical Z bore axis;
+# only the angular station changes per gradient axis.
 #
 # These are starting points — the exact Gx/Gz station may need empirical
 # tuning, exposed through the GUI. spread_signs control which way each lead
@@ -66,19 +66,19 @@ class LeadAxisPreset:
 
 _LEAD_PRESETS = {
     'x': LeadAxisPreset(
-        lead_direction=np.array([-1.0, 0.0, 0.0]),
+        lead_direction=np.array([0.0, 0.0, -1.0]),
         sector_ref_dir=np.array([0.0, 1.0, 0.0]),
         sector_angular_half=0.35,
         spread_signs=(1, -1),
     ),
     'y': LeadAxisPreset(
-        lead_direction=np.array([-1.0, 0.0, 0.0]),
-        sector_ref_dir=np.array([0.0, 0.0, 1.0]),
+        lead_direction=np.array([0.0, 0.0, -1.0]),
+        sector_ref_dir=np.array([-1.0, 0.0, 0.0]),
         sector_angular_half=0.35,
         spread_signs=(1, -1),
     ),
     'z': LeadAxisPreset(
-        lead_direction=np.array([-1.0, 0.0, 0.0]),
+        lead_direction=np.array([0.0, 0.0, -1.0]),
         sector_ref_dir=np.array([0.0, 1.0, 0.0]),
         sector_angular_half=0.35,
         spread_signs=(1, -1),
@@ -116,7 +116,7 @@ class CylinderConfig:
     n_circ: int = 200
     n_long: int = 10
     rot_axis: tuple = (0, 1, 0)
-    rot_angle: float = np.pi / 2
+    rot_angle: float = 0.0
     # pyCoilGen mesh axial length = height * this (< 1 keeps windings short of
     # the shell ends so grooves are not flush with the cylinder rim).
     mesh_length_factor: float = 0.95

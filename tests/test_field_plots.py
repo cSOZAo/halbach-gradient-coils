@@ -107,6 +107,6 @@ def test_invalid_samples_and_unknown_formats_are_rejected(tmp_path):
                       np.array([0., np.nan]), np.zeros(2), "x", "+y")
     with pytest.raises(ValueError, match="B0"):
         field_data_from_solution(_solution(), "x", "+q")
-    np.savez(tmp_path / "future.npz", format_version=np.asarray(2))
+    np.savez(tmp_path / "future.npz", format_version=np.asarray(99))
     with pytest.raises(ValueError, match="Unsupported"):
         load_field_data(tmp_path / "future.npz")

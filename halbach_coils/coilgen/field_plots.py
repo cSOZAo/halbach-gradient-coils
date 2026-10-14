@@ -50,6 +50,8 @@ FIELD_PLOT_TRANSLATIONS_ES = {
     "Field result data": "Datos de resultados del campo",
     "Cannot open field results": "No se pueden abrir los resultados del campo",
     "View:": "Vista:",
+    'Final conductor with leads; external supply/return wires excluded.':
+        'Conductor final con terminales; sin cables externos de alimentación y retorno.',
 }
 
 
@@ -78,6 +80,7 @@ class FieldPlotData:
     gradient_axis: str
     b0_direction: str
     project_name: str = "gradient"
+    circuit_stage: str = 'coilgen'
 
     def __post_init__(self):
         self.coords_m = np.asarray(self.coords_m, dtype=float)
@@ -136,7 +139,7 @@ def field_data_from_solution(solution, gradient_axis: str,
 def load_field_data(path: str | Path) -> FieldPlotData:
     """Load a saved result with pickle disabled and validate its sample arrays."""
     with np.load(path, allow_pickle=False) as archive:
-        if int(archive["format_version"]) != 1:
+        if int(archive["format_version"]) not in (1, 2):
             raise ValueError("Unsupported field result format")
         return FieldPlotData(
             coords_m=archive["coords_m"],
@@ -145,6 +148,7 @@ def load_field_data(path: str | Path) -> FieldPlotData:
             gradient_axis=str(archive["gradient_axis"].item()),
             b0_direction=str(archive["b0_direction"].item()),
             project_name=str(archive["project_name"].item()),
+            circuit_stage=str(archive['circuit_stage'].item()) if 'circuit_stage' in archive else 'coilgen',
         )
 
 
@@ -158,6 +162,9 @@ def draw_field_figure(figure, data: FieldPlotData, kind: str,
     heading = text("Gradient G{axis} | B0 {direction}",
                    axis=data.gradient_axis.upper(), direction=data.b0_direction.upper())
     figure.suptitle(f"{text(PLOT_LABELS[kind])}\n{heading}", fontsize=14)
+    if data.circuit_stage == 'final':
+        figure.text(0.5, 0.89, text('Final conductor with leads; external supply/return wires excluded.'),
+                    ha='center', fontsize=9, color='#555555')
     coord_mm = data.gradient_coords_m * 1000.0
     order = np.argsort(coord_mm)
     field = data.generated_mT_per_A
@@ -252,9 +259,16 @@ def save_field_plots(solution, output_dir: str | Path, gradient_axis: str,
     Safe in a worker: FigureCanvasAgg renders directly without a Tk event loop
     or pyplot.show(). The returned dict is suitable for storing in metrics.
     """
+    data = field_data_from_solution(solution, gradient_axis, b0_direction, project_name)
+    return save_plot_data(data, output_dir, tr)
+
+
+def save_plot_data(data: FieldPlotData, output_dir: str | Path,
+                   tr: Callable | None = None) -> dict:
+    """Save an evaluated circuit, using the same figures as the result viewer."""
     from matplotlib.backends.backend_agg import FigureCanvasAgg
 
-    data = field_data_from_solution(solution, gradient_axis, b0_direction, project_name)
+    project_name = data.project_name
     output = Path(output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
     # Stems normally come from paths.unique_stem; disallow path components here.
@@ -263,13 +277,14 @@ def save_field_plots(solution, output_dir: str | Path, gradient_axis: str,
     data_path = output / f"{project_name}_field_data.npz"
     np.savez_compressed(
         data_path,
-        format_version=np.asarray(1, dtype=np.int64),
+        format_version=np.asarray(2, dtype=np.int64),
         coords_m=data.coords_m,
         generated_mT_per_A=data.generated_mT_per_A,
         target_mT_per_A=data.target_mT_per_A,
         gradient_axis=np.asarray(data.gradient_axis),
         b0_direction=np.asarray(data.b0_direction),
         project_name=np.asarray(data.project_name),
+        circuit_stage=np.asarray(data.circuit_stage),
     )
     png_paths = {}
     for kind in PLOT_KINDS:

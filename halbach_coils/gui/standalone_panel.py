@@ -21,7 +21,7 @@ from coilgen.config import (
     list_shell_pairs,
 )
 from coilgen.paths import infer_gradient_axis
-from .runner import WorkerRunner
+from .runner import WorkerRunner, JobCancelled
 from .units import mm_to_m
 from .advanced_controls import AdvancedControls
 
@@ -120,7 +120,9 @@ class StandalonePanel(ttk.Frame):
         # Run + log
         bar = ttk.Frame(self)
         bar.pack(fill='x', padx=8, pady=4)
-        ttk.Button(bar, text="Run step", command=self._on_run).pack(side='left')
+        self.run_btn = ttk.Button(bar, text="Run step", command=self._on_run)
+        self.run_btn.pack(side='left')
+        self.stop_btn = ttk.Button(bar, text="Stop", command=self._on_stop)
         self.progress = ttk.Progressbar(bar, mode='determinate', maximum=100, length=300)
         self.progress.pack(side='left', padx=10)
 
@@ -197,26 +199,10 @@ class StandalonePanel(ttk.Frame):
             messagebox.showerror(self.root.tr("Invalid parameters"), str(exc))
             return
 
-        def _target():
-            if action == 'wire':
-                from coilgen.gradient import run_gradient
-                sol, metrics, overlap = run_gradient(cfg, output_dir=out_dir)
-                return metrics.get('field_plots'), overlap
-            elif action == 'leads':
-                from coilgen.leads import run_leads
-                if not input_stl or not os.path.isfile(input_stl):
-                    raise FileNotFoundError(self.root.tr("Select a valid wire STL."))
-                paths = run_leads(cfg, input_stl=input_stl)
-                return paths, None
-            else:  # shell
-                from coilgen.shell import run_shell
-                if not input_stl or not os.path.isfile(input_stl):
-                    raise FileNotFoundError(self.root.tr("Select a valid with-leads STL."))
-                out_dir2, shell_paths = run_shell(cfg, wire_with_leads_stl=input_stl,
-                                                  output_dir=out_dir)
-                return shell_paths, None
-
         def _on_done(result, err):
+            if isinstance(err, JobCancelled):
+                self.runner.log(self.root.tr("Stopped. Partial output files were kept.") + '\n')
+                return
             if err is not None:
                 messagebox.showerror(
                     "Standalone", self.root.tr("Failed: {error}", error=err))
@@ -225,6 +211,9 @@ class StandalonePanel(ttk.Frame):
                 if action == 'wire' and payload:
                     self.root.show_field_plots(payload)
                     payload = out_dir
+                elif action == 'leads' and isinstance(payload, dict):
+                    self.root.show_field_plots(payload['field_plots'])
+                    payload = '\n'.join(payload['paths'])
                 msg = self.root.tr("Done.\n{payload}", payload=payload)
                 if overlap is not None and overlap.n_collisions > 0:
                     msg += self.root.tr(
@@ -232,7 +221,22 @@ class StandalonePanel(ttk.Frame):
                         count=overlap.n_collisions, maximum=overlap.max_cables)
                 messagebox.showinfo("Standalone", msg)
 
-        self.runner.run(_target, on_done=_on_done)
+        self.runner.run_job('standalone', cfg,
+                            extra={'action': action, 'input_stl': input_stl},
+                            on_done=_on_done)
+
+    def _set_running(self, running):
+        self.run_btn.configure(state='disabled' if running else 'normal')
+        if running:
+            self.stop_btn.configure(state='normal', text=self.root.tr("Stop"))
+            if not self.stop_btn.winfo_ismapped():
+                self.stop_btn.pack(side='left', padx=6, before=self.progress)
+        else:
+            self.stop_btn.pack_forget()
+
+    def _on_stop(self):
+        self.runner.request_stop()
+        self.stop_btn.configure(state='disabled', text=self.root.tr("Stopping..."))
 
     def retranslate(self):
         """Static widget text is refreshed by the application localizer."""

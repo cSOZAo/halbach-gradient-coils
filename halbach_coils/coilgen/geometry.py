@@ -98,7 +98,7 @@ _FILENAME_BY_AXIS = {
 }
 
 
-def rotated_cylinder_axis(rot_axis=(0, 1, 0), rot_angle=np.pi / 2) -> np.ndarray:
+def rotated_cylinder_axis(rot_axis=(0, 1, 0), rot_angle=0.0) -> np.ndarray:
     """Bore axis (unit vector) after applying the cylinder mesh rotation."""
     R = rodrigues_rotation_matrix(rot_axis, rot_angle)
     return R @ np.array([0.0, 0.0, 1.0])
@@ -190,7 +190,7 @@ def detect_fusion_cylinder_dims(stl_a: str, stl_b: str) -> Dict[str, float]:
 
 def measure_wire_dims(stl_path: str,
                       rot_axis=(0, 1, 0),
-                      rot_angle=np.pi / 2) -> Dict[str, float]:
+                      rot_angle=0.0) -> Dict[str, float]:
     """Axial and radial extent of a wire STL in the pyCoilGen frame [m]."""
     axis = rotated_cylinder_axis(rot_axis, rot_angle)
     tm = trimesh.load(stl_path)

@@ -7,7 +7,7 @@ duplicates with a single source of truth driven by :class:`coilgen.config.Config
 
 Coordinate frame
 ----------------
-The scanner B0 defaults to +Y (transverse to the +X bore) and is selectable.
+The scanner B0 defaults to +Y (transverse to the +Z bore) and is selectable.
 Coordinates, field vectors, gradients and STLs share the physical XYZ frame.
 Gx/Gy/Gz are derivatives of the signed B0 component along physical X/Y/Z.
 """

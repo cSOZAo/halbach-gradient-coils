@@ -24,6 +24,8 @@ class CoilGenApp(tk.Tk):
         self.localizer = Localizer(DEFAULT_LANGUAGE)
         self.language_var = tk.StringVar(value=DEFAULT_LANGUAGE)
         self.b0_var = tk.StringVar(value='+y')
+        self._active_job_runner = None
+        self._closing = False
         self.title("pyCoilGen - MRI gradient coil design")
         self.geometry("1280x820")
         self.minsize(960, 640)
@@ -140,7 +142,29 @@ class CoilGenApp(tk.Tk):
             self.output_dir_var.set(os.path.abspath(path))
 
     def _on_close(self):
+        self._closing = True
+        runner = self._active_job_runner
+        if runner is not None and runner.is_running:
+            runner.request_stop()
+            self.after(60, self._finish_close)
+        else:
+            self._finish_close()
+
+    def _finish_close(self):
+        runner = self._active_job_runner
+        if runner is not None and runner.is_running:
+            self.after(60, self._finish_close)
+            return
+        for panel in (self.pipeline_panel, self.standalone_panel, self.sweep_panel):
+            panel.runner.stop_polling()
         self.destroy()
+
+    def on_job_state_changed(self):
+        panels = (self.pipeline_panel, self.standalone_panel, self.sweep_panel)
+        busy = any(panel.runner is not None and panel.runner.is_running for panel in panels)
+        for panel in panels:
+            panel._set_running(panel.runner is not None and panel.runner.is_running)
+            panel.run_btn.configure(state='disabled' if busy or self._closing else 'normal')
 
 
 def main():

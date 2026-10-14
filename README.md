@@ -67,7 +67,7 @@ Simulation outputs are written under `halbach_coils/resultados/`. They are delib
 Select `B0` from the top menu: `+X`, `-X`, `+Y`, `-Y`, `+Z`, or `-Z`.
 The default is `+Y`. The optimized field is the signed component `B · B0_hat`;
 `Gx`, `Gy`, and `Gz` are its derivatives along physical X, Y, and Z.
-The bore points along physical `+X`. The ROI, wire STL, field plots, and 3D
+The bore points along physical `+Z`. The ROI, wire STL, field plots, and 3D
 preview use this same frame. Changing B0 does not rotate the cylinder or ROI.
 
 This corrects the previous axis permutation, which labeled the field as Y
@@ -81,7 +81,10 @@ objective versus generated field at 1 A, linearity with residuals, and spatial
 field/error samples in the ROI. Pipeline and wire runs open the interactive
 viewer automatically. Use **Results > Open field plots...** to reopen a result;
 its saved B0 direction is independent of the current menu selection.
-These fields describe the CoilGen wire before the separate lead stage.
+Wire-only results describe the CoilGen conductor. After successful lead creation,
+the pipeline recalculates the field and electrical metrics from the retained coil
+and both terminal leads. Final plots identify this stage explicitly; external
+power-supply and return wiring are outside the model.
 
 **Advanced CoilGen parameters > Show more parameters** exposes mesh and ROI
 sampling, contour and connection controls, integration, and optimizer settings.
@@ -89,7 +92,8 @@ Hover over a label or value for its meaning, units, and effects, in the selected
 language. Expanding the Pipeline controls shows a reduced mesh/ROI preview;
 the numerical summary gives the full sample counts. Changes to the field or
 winding require running a new design. Hiding the controls preserves their values,
-and JSON presets save B0 and advanced settings together.
+and **Restore defaults** resets only these advanced settings. The main geometry,
+material, and B0 selection are preserved. The 3D views support mouse-wheel zoom.
 
 ## Requirements
 
@@ -206,13 +210,15 @@ The GUI has three modes:
   fine range around promising values. It displays the samples and writes CSV
   and text summaries to the selected output directory.
 
-Pipeline configurations can be saved and loaded as versioned JSON presets.
-Each sweep also writes `Sweep_Config.json` beside its CSV: use **Load previous
+Each sweep writes `Sweep_Config.json` beside its CSV: use **Load previous
 CSV...**, select any result row, and choose **Use selected in Pipeline** to
 restore the sweep geometry/material parameters with that row's Tikhonov value.
 
 The log at the bottom of each mode shows progress and the exact failure if a
-run cannot finish. Closing the GUI does not delete generated files.
+run cannot finish. **Stop** terminates the calculation process and its child
+processes; the three panels share one active job. Cancelled runs keep their
+partial files and a `.job_status.json` marker. Closing the GUI also cancels its
+active job.
 
 For a non-interactive run:
 
@@ -257,7 +263,17 @@ record every parameter or diagnostic needed to reproduce the run.
 | `coilgen.metrics` | records slope, RMSE, relative error, and electrical values |
 | `coilgen.fasthenry` | resolves an optional FastHenry2 executable |
 
-Lead wires exit along the bore (`+/-X` after the mesh rotation). Their angular station is configured per gradient axis. These defaults are starting points, not manufacturing guarantees; inspect generated geometry and collision warnings for each design.
+Lead wires exit along the bore (by default toward `-Z`). Their angular station
+is configured per gradient axis. The planner preserves the original groove
+sections and requires a route that satisfies curvature and clearance checks.
+If no route is feasible it reports an error. A tested Gz case remains pending
+geometry review; see [the correction report](docs/CORRECCIONES_2026-10-14.md).
+
+Reusing a wire requires its matching `*_design.json`, field data, and lead
+reference sidecars. The application checks the saved configuration and file
+hashes. Regenerate older designs that lack this information. Normal application
+runs retain compact result files instead of serializing the engine's full
+intermediate matrices.
 
 ## FastHenry2
 
@@ -265,9 +281,14 @@ FastHenry2 is optional. The resolver checks, in order:
 
 1. A path configured in `Config.fasthenry.bin_path`.
 2. An executable available on `PATH` (`FastHenry2.exe`, `fasthenry.exe`, `fasthenry2`, or `fasthenry`).
-3. The historical Windows installation path, only if it exists.
+3. The standard and historical Windows installation paths, only if they exist.
 
-If no executable is found, the design proceeds and the metrics file explicitly records unavailable R/L values. Do not treat `n/a` as a physical result.
+After lead creation the application evaluates the final conductor. It records
+the analytical resistance separately from optional FastHenry R/L. If extraction
+is unavailable or fails, solver values remain empty with an explicit status.
+Windows FastHenry uses its registered COM server; its client has a timeout,
+but a hung external COM server may remain alive after cancellation. Real COM
+extraction still requires validation on the installed solver.
 
 ## pyCoilGen integration notes
 

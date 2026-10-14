@@ -30,14 +30,11 @@ from coilgen.config import (
     apply_custom_shell_dims,
     list_shell_pairs,
 )
-from coilgen.presets import (
-    default_preset_dir,
-    load_config_preset,
-    save_config_preset,
-)
-from .runner import WorkerRunner
+
+from .runner import WorkerRunner, JobCancelled
 from .units import mm_to_m
 from .advanced_controls import AdvancedControls
+from .plot_controls import enable_3d_zoom, cancel_draw_on_destroy
 
 
 class _AspectFrame(ttk.Frame):
@@ -272,14 +269,6 @@ class PipelinePanel(ttk.Frame):
             row=11, column=1, sticky='w')
         self._toggle_shell()
 
-        # Reusable JSON configurations.
-        presets = ttk.LabelFrame(left, text="Presets", padding=6)
-        presets.pack(fill='x', pady=4, padx=(0, 2))
-        ttk.Button(presets, text="Save preset...", command=self._save_preset).pack(
-            side='left', padx=4)
-        ttk.Button(presets, text="Load preset...", command=self._load_preset).pack(
-            side='left', padx=4)
-
         # Steps toggles
         steps = ttk.LabelFrame(left, text="Steps", padding=6)
         steps.pack(fill='x', pady=4, padx=(0, 2))
@@ -293,32 +282,6 @@ class PipelinePanel(ttk.Frame):
                         variable=self.run_leads_var).pack(side='left', padx=6)
         ttk.Checkbutton(steps, text="Shell",
                         variable=self.run_shell_var).pack(side='left', padx=6)
-
-        # Advanced leads (collapsible)
-        self.adv_frame = ttk.LabelFrame(left, text="Advanced leads", padding=6)
-        self.adv_frame.pack(fill='x', pady=4, padx=(0, 2))
-        self.adv_visible = tk.BooleanVar(value=False)
-        self.adv_toggle = ttk.Checkbutton(
-            self.adv_frame, text="Show advanced lead parameters",
-            variable=self.adv_visible, command=self._toggle_advanced)
-        self.adv_toggle.pack(anchor='w')
-        self.adv_body = ttk.Frame(self.adv_frame)
-        ttk.Label(self.adv_body, text="lead_blend [mm]:").grid(
-            row=0, column=0, sticky='w', padx=4, pady=2)
-        self.lead_blend_var = tk.StringVar(value='15')
-        ttk.Entry(self.adv_body, textvariable=self.lead_blend_var,
-                  width=10).grid(row=0, column=1, sticky='w')
-        ttk.Label(self.adv_body, text="cs_blend_rings:").grid(
-            row=0, column=2, sticky='w', padx=8, pady=2)
-        self.cs_blend_rings_var = tk.StringVar(value='20')
-        ttk.Entry(self.adv_body, textvariable=self.cs_blend_rings_var,
-                  width=6).grid(row=0, column=3, sticky='w')
-        ttk.Label(self.adv_body, text="junction_rigid_steps:").grid(
-            row=0, column=4, sticky='w', padx=8, pady=2)
-        self.junction_rigid_steps_var = tk.StringVar(value='4')
-        ttk.Entry(self.adv_body, textvariable=self.junction_rigid_steps_var,
-                  width=6).grid(row=0, column=5, sticky='w')
-        self._toggle_advanced()
 
         self.coilgen_advanced = AdvancedControls(
             left, root=self.root, on_change=self._redraw_previews)
@@ -391,12 +354,6 @@ class PipelinePanel(ttk.Frame):
         # Sensible initial sash positions once the window has a real size.
         self.after(80, self._init_sashes)
 
-    def _toggle_advanced(self):
-        if self.adv_visible.get():
-            self.adv_body.pack(fill='x', padx=4, pady=4)
-        else:
-            self.adv_body.pack_forget()
-
     def _init_sashes(self):
         """Place paned-window sashes once the layout has a real size."""
         try:
@@ -419,53 +376,12 @@ class PipelinePanel(ttk.Frame):
     def _clear_log(self):
         self.log_text.delete('1.0', 'end')
 
-    def _save_preset(self):
-        try:
-            cfg = self._build_cfg()
-        except (ValueError, KeyError) as exc:
-            messagebox.showerror(self.root.tr("Invalid parameters"), str(exc))
-            return
-        directory = default_preset_dir()
-        os.makedirs(directory, exist_ok=True)
-        initial = f'{cfg.design_folder}.json'
-        path = filedialog.asksaveasfilename(
-            title=self.root.tr("Save preset"), initialdir=directory,
-            initialfile=initial, defaultextension='.json',
-            filetypes=[("JSON", "*.json")], parent=self.root)
-        if not path:
-            return
-        save_config_preset(
-            cfg, path, name=os.path.splitext(os.path.basename(path))[0],
-            source='pipeline',
-        )
-        messagebox.showinfo(
-            self.root.tr("Preset saved"),
-            self.root.tr("Preset saved to:\n{path}", path=path),
-            parent=self.root,
-        )
-
-    def _load_preset(self):
-        directory = default_preset_dir()
-        os.makedirs(directory, exist_ok=True)
-        path = filedialog.askopenfilename(
-            title=self.root.tr("Load preset"), initialdir=directory,
-            filetypes=[("JSON", "*.json"),
-                       (self.root.tr("All files"), "*.*")], parent=self.root)
-        if not path:
-            return
-        try:
-            cfg = load_config_preset(path)
-            self.apply_config(cfg)
-        except (OSError, ValueError, TypeError) as exc:
-            messagebox.showerror(
-                self.root.tr("Invalid preset"), str(exc), parent=self.root)
-
     @staticmethod
     def _mm_text(value_m: float) -> str:
         return f'{value_m * 1000.0:g}'
 
     def apply_config(self, cfg: Config) -> None:
-        """Populate Pipeline controls from a preset or sweep configuration."""
+        """Populate Pipeline controls from a selected sweep configuration."""
         self.axis_var.set(cfg.gradient_axis)
         self.root.b0_var.set(cfg.b0_direction)
         self.coilgen_advanced.load_config(cfg)
@@ -496,9 +412,6 @@ class PipelinePanel(ttk.Frame):
         self.run_gradient_var.set(cfg.control.run_gradient)
         self.run_leads_var.set(cfg.control.run_leads)
         self.run_shell_var.set(cfg.control.run_shell)
-        self.lead_blend_var.set(self._mm_text(cfg.leads.lead_blend))
-        self.cs_blend_rings_var.set(str(cfg.leads.cs_blend_rings))
-        self.junction_rigid_steps_var.set(str(cfg.leads.junction_rigid_steps))
 
         matching_label = ''
         if cfg.shell.use_custom_stl:
@@ -666,6 +579,7 @@ class PipelinePanel(ttk.Frame):
         self.cyl_ax.set_aspect('equal')
         self.cyl_ax.axis('off')
         self.cyl_mpl_canvas = FigureCanvasTkAgg(self.cyl_fig, master=holder.inner)
+        cancel_draw_on_destroy(self.cyl_mpl_canvas)
         self.cyl_mpl_canvas.get_tk_widget().pack(fill='both', expand=True)
 
     def _geo3d_figure_setup(self, parent: ttk.LabelFrame):
@@ -679,6 +593,7 @@ class PipelinePanel(ttk.Frame):
         self.geo3d_caption = self.geo3d_fig.text(
             0.03, 0.025, '', fontsize=7, color='#700076')
         self.geo3d_mpl_canvas = FigureCanvasTkAgg(self.geo3d_fig, master=holder.inner)
+        enable_3d_zoom(self.geo3d_mpl_canvas)
         self.geo3d_mpl_canvas.get_tk_widget().pack(fill='both', expand=True)
         self.geo3d_alert_lbl = ttk.Label(
             parent, text="", foreground='#b71c1c', wraplength=280, justify='left')
@@ -718,25 +633,25 @@ class PipelinePanel(ttk.Frame):
         """Return human-readable reasons why the ROI is outside the bore.
 
         The ROI must lie inside the hollow bore (radius ``r_inner``,
-        |x| <= ``half_h``). An axis-aligned ellipsoid centered at the origin
-        fits iff max(Ry, Rz) <= R_int and Rx <= H/2.
+        |z| <= ``half_h``). An axis-aligned ellipsoid centered at the origin
+        fits iff max(Rx, Ry) <= R_int and Rz <= H/2.
         """
         reasons = []
-        rho_max = max(ry, rz)
+        rho_max = max(rx, ry)
         if rho_max > r_inner + 1e-12:
             reasons.append(
-                f"ROI radial (max Ry/Rz={rho_max*1000:.1f} mm) > "
+                f"ROI radial (max Rx/Ry={rho_max*1000:.1f} mm) > "
                 f"R_int={r_inner*1000:.1f} mm")
-        if rx > half_h + 1e-12:
+        if rz > half_h + 1e-12:
             reasons.append(
-                f"ROI axial (Rx={rx*1000:.1f} mm) > "
+                f"ROI axial (Rz={rz*1000:.1f} mm) > "
                 f"H/2={half_h*1000:.1f} mm")
         return reasons
 
     def _redraw_geo3d_preview(self):
         """3D hollow cylinder (R_int / R_ext / height) + ROI ellipsoid (Rx, Ry, Rz).
 
-        Physical frame shared with CoilGen and exported wire: bore along +X.
+        Physical frame shared with CoilGen and exported wire: bore along +Z.
         The ROI semiaxes and B0 are shown in these physical X/Y/Z coordinates.
         """
         try:
@@ -775,14 +690,14 @@ class PipelinePanel(ttk.Frame):
         zs = np.linspace(-half_h_mm, half_h_mm, n_z)
         Theta, Z = np.meshgrid(theta, zs)
 
-        # Cylinder coordinates: axial X, radial Y/Z, exactly as the wire STL.
+        # Cylinder coordinates: axial Z, radial X/Y, exactly as the wire STL.
         Xo = r_outer_mm * np.cos(Theta)
         Yo = r_outer_mm * np.sin(Theta)
         Xi = r_inner_mm * np.cos(Theta)
         Yi = r_inner_mm * np.sin(Theta)
-        ax.plot_surface(Z, Xo, Yo, color='#9aa3ad', alpha=0.28,
+        ax.plot_surface(Xo, Yo, Z, color='#9aa3ad', alpha=0.28,
                         linewidth=0, antialiased=True, shade=True)
-        ax.plot_surface(Z, Xi, Yi, color='#c5cdd6', alpha=0.22,
+        ax.plot_surface(Xi, Yi, Z, color='#c5cdd6', alpha=0.22,
                         linewidth=0, antialiased=True, shade=True)
 
         # Annular end caps at physical z = ±height/2.
@@ -791,7 +706,7 @@ class PipelinePanel(ttk.Frame):
         Xc = R_c * np.cos(Theta_c)
         Yc = R_c * np.sin(Theta_c)
         for z_cap in (-half_h_mm, half_h_mm):
-            ax.plot_surface(np.full_like(Xc, z_cap), Xc, Yc,
+            ax.plot_surface(Xc, Yc, np.full_like(Xc, z_cap),
                             color='#7a8490', alpha=0.35, linewidth=0,
                             antialiased=True, shade=True)
 
@@ -801,7 +716,7 @@ class PipelinePanel(ttk.Frame):
             x_ring = r * np.cos(th)
             y_ring = r * np.sin(th)
             for z_ring in (-half_h_mm, half_h_mm):
-                ax.plot(np.full_like(th, z_ring), x_ring, y_ring,
+                ax.plot(x_ring, y_ring, np.full_like(th, z_ring),
                         color='#333333', lw=0.9, alpha=0.85)
 
         # ROI ellipsoid: blue if inside bore, red if colliding / outside.
@@ -816,10 +731,10 @@ class PipelinePanel(ttk.Frame):
 
         if self.coilgen_advanced.expanded.get():
             # Geometric preview only: no field is claimed before optimization.
-            mesh_x = Z * cfg.cylinder.mesh_length_factor
+            mesh_z = Z * cfg.cylinder.mesh_length_factor
             design_r = cfg.cylinder_design_radius * scale
-            ax.plot_wireframe(mesh_x, design_r * np.cos(Theta),
-                              design_r * np.sin(Theta), color='#59636e',
+            ax.plot_wireframe(design_r * np.cos(Theta),
+                              design_r * np.sin(Theta), mesh_z, color='#59636e',
                               alpha=0.35, linewidth=0.4, rstride=1, cstride=1)
             ra = np.linspace(0, 1, min(cfg.target.resol_radial, 8))
             tt = np.linspace(0, math.pi, min(cfg.target.resol_angular, 14))
@@ -1255,20 +1170,6 @@ class PipelinePanel(ttk.Frame):
                 and cfg.shell_inner_radius >= cfg.shell_outer_radius):
             raise ValueError(self.root.tr(
                 "The custom STL has Rint >= Rext; check the halves in assets/shells."))
-        # Advanced leads knobs (optional; only override if shown & valid).
-        if getattr(self, 'adv_visible', None) and self.adv_visible.get():
-            try:
-                cfg.leads.lead_blend = mm_to_m(self.lead_blend_var.get())
-            except ValueError:
-                pass
-            try:
-                cfg.leads.cs_blend_rings = int(self.cs_blend_rings_var.get())
-            except ValueError:
-                pass
-            try:
-                cfg.leads.junction_rigid_steps = int(self.junction_rigid_steps_var.get())
-            except ValueError:
-                pass
         self.coilgen_advanced.apply_to(cfg)
         return cfg
 
@@ -1289,8 +1190,7 @@ class PipelinePanel(ttk.Frame):
             if not self.stop_btn.winfo_ismapped():
                 self.stop_btn.pack(side='left', padx=(6, 0), before=self.progress)
         else:
-            if self.stop_btn.winfo_ismapped():
-                self.stop_btn.pack_forget()
+            self.stop_btn.pack_forget()
 
     def _on_stop(self):
         if self.runner is not None:
@@ -1310,18 +1210,10 @@ class PipelinePanel(ttk.Frame):
             return
         cfg.output_dir = out_dir
         question_language = self.root.language_var.get()
-        self._set_running(True)
-
-        # The overlap check happens inside run_gradient. We hand the runner's
-        # ask_user through so a popup appears when collisions are detected.
-        def _target(ask_user=None):
-            from run_pipeline import run_pipeline as _run
-            return _run(cfg, should_stop=self.runner.should_stop,
-                        ask_user=ask_user,
-                        question_language=question_language)
-
         def _on_done(result, err):
-            self._set_running(False)
+            if isinstance(err, JobCancelled):
+                self.runner.log(self.root.tr("Stopped. Partial output files were kept.") + '\n')
+                return
             plots = getattr(result, 'field_plots', None)
             if plots:
                 self.root.show_field_plots(plots)
@@ -1340,7 +1232,9 @@ class PipelinePanel(ttk.Frame):
                 messagebox.showinfo(
                     "Pipeline", self.root.tr("Done.\nResults in:\n{path}", path=output_dir))
 
-        self.runner.run(_target, on_done=_on_done, ask_user=self._ask_user)
+        self.runner.run_job('pipeline', cfg,
+                            extra={'question_language': question_language},
+                            on_done=_on_done, ask_user=self._ask_user)
 
     def retranslate(self):
         """Refresh dynamic preview text after a language change."""

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+from .plot_controls import enable_3d_zoom
 
 from halbach_coils.coilgen.field_plots import (
     PLOT_KINDS, PLOT_LABELS, create_field_figure, draw_field_figure, load_field_data,
@@ -41,6 +42,7 @@ class FieldViewer(tk.Toplevel):
 
         self.figure = create_field_figure(self.data, tr=self.tr)
         self.canvas = FigureCanvasTkAgg(self.figure, master=self)
+        enable_3d_zoom(self.canvas)
         toolbar_frame = ttk.Frame(self)
         toolbar_frame.pack(side="bottom", fill="x")
         self.toolbar = NavigationToolbar2Tk(self.canvas, toolbar_frame, pack_toolbar=False)

@@ -33,6 +33,7 @@ from coilgen.config import Config
 from coilgen.gradient import run_gradient
 from coilgen.leads import run_leads
 from coilgen.shell import run_shell
+from coilgen.design_state import validate_design_state, copy_design_state
 
 
 @dataclass(frozen=True)
@@ -62,7 +63,7 @@ def _seed_wire_from_previous_run(cfg: Config, run_dir: str) -> bool:
     allocated. Stem/metrics are copied once, outside the wire loop.
     """
     design = cfg.design_folder
-    best_dir = ''
+    best_wire = ''
     best_mtime = 0.0
     for folder in glob.glob(os.path.join(_paths.PIPELINE_OUTPUT_BASE, f'{design}*')):
         if not os.path.isdir(folder):
@@ -70,27 +71,29 @@ def _seed_wire_from_previous_run(cfg: Config, run_dir: str) -> bool:
         if os.path.normpath(folder) == os.path.normpath(run_dir):
             continue
         for wire in _coil_only_wire_paths(folder):
+            try:
+                validate_design_state(wire, cfg)
+            except (ValueError, OSError) as exc:
+                print(f"  Skipping incompatible previous wire: {wire}: {exc}")
+                continue
             mtime = os.path.getmtime(wire)
             if mtime > best_mtime:
                 best_mtime = mtime
-                best_dir = folder
+                best_wire = wire
 
-    if not best_dir:
+    if not best_wire:
         return False
 
     os.makedirs(run_dir, exist_ok=True)
-    wires = _coil_only_wire_paths(best_dir)
-    for wire in wires:
-        shutil.copy2(wire, os.path.join(run_dir, os.path.basename(wire)))
-
-    # Seed stem + metrics once (fix: previously copied per-wire inside the loop).
-    stem_path = os.path.join(best_dir, _paths.ACTIVE_STEM_FILE)
-    if os.path.isfile(stem_path):
-        shutil.copy2(stem_path, os.path.join(run_dir, _paths.ACTIVE_STEM_FILE))
-    for m in glob.glob(os.path.join(best_dir, '*_metrics.txt')):
-        shutil.copy2(m, os.path.join(run_dir, os.path.basename(m)))
-
-    print(f"  Seeded wire from: {best_dir}")
+    destination = os.path.join(run_dir, os.path.basename(best_wire))
+    shutil.copy2(best_wire, destination)
+    copy_design_state(best_wire, destination)
+    stem = os.path.basename(best_wire).rsplit('_wire_0', 1)[0]
+    _paths.write_active_stem(run_dir, stem)
+    metrics_path = os.path.join(os.path.dirname(best_wire), f'{stem}_metrics.txt')
+    if os.path.isfile(metrics_path):
+        shutil.copy2(metrics_path, os.path.join(run_dir, os.path.basename(metrics_path)))
+    print(f"  Seeded verified wire from: {os.path.dirname(best_wire)}")
     return True
 
 
@@ -100,12 +103,15 @@ def _ensure_wire_exists(cfg: Config, run_dir: str, run_gradient: bool) -> str:
         run_dir, cfg.gradient_axis, cfg.tikhonov_factor, cfg.num_levels,
     )
     if os.path.isfile(path):
+        if not run_gradient:
+            validate_design_state(path, cfg)
         return path
     if not run_gradient and _seed_wire_from_previous_run(cfg, run_dir):
         path = _paths.resolve_wire_stl_path(
             run_dir, cfg.gradient_axis, cfg.tikhonov_factor, cfg.num_levels,
         )
         if os.path.isfile(path):
+            validate_design_state(path, cfg)
             return path
     raise FileNotFoundError(
         f"Wire STL missing: {path}\n"
@@ -163,6 +169,7 @@ def run_pipeline(cfg: Config, should_stop=None, ask_user=None,
         _solution, _metrics, collision_report = run_gradient(
             cfg, output_dir=run_dir, check_overlap=cfg.overlap_warn)
         field_plots = _metrics.get('field_plots')
+        del _solution
         print()
         if collision_report is not None and collision_report.n_collisions > 0:
             question = collision_report.user_question(question_language)
@@ -189,7 +196,11 @@ def run_pipeline(cfg: Config, should_stop=None, ask_user=None,
             return PipelineResult(run_dir, field_plots=field_plots)
         wire_stl = _ensure_wire_exists(cfg, run_dir, cfg.control.run_gradient)
         print("[2/3] Adding lead wires...")
-        run_leads(cfg, input_stl=wire_stl)
+        lead_paths = run_leads(cfg, input_stl=wire_stl)
+        if lead_paths:
+            from coilgen.final_field import evaluate_final_conductor
+            final = evaluate_final_conductor(cfg, wire_stl, lead_paths[0], run_dir)
+            field_plots = final['field_plots']
         print()
 
     if cfg.control.run_shell:

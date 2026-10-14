@@ -48,12 +48,12 @@ def test_gui_preset_restores_b0_and_hidden_advanced_values(app):
     assert app.menu_bar.entrycget(2, 'label') == 'Resultados'
 
 
-def test_preview_roi_uses_bore_x_and_physical_labels(app):
+def test_preview_roi_uses_bore_z_and_physical_labels(app):
     panel = app.pipeline_panel
-    # A long X semiaxis fits the bore; the same radial semiaxis does not.
-    assert not panel._roi_cylinder_collision(.04, .01, .01, .035, .085)
-    assert panel._roi_cylinder_collision(.01, .04, .01, .035, .085)
-    assert panel._roi_cylinder_collision(.09, .01, .01, .035, .085)
+    # A long Z semiaxis fits the bore; the same radial semiaxis does not.
+    assert not panel._roi_cylinder_collision(.01, .01, .04, .035, .085)
+    assert panel._roi_cylinder_collision(.04, .01, .01, .035, .085)
+    assert panel._roi_cylinder_collision(.01, .01, .09, .035, .085)
     app.b0_var.set('-z')
     assert panel.geo3d_ax.get_xlabel() == 'X [mm]'
     assert panel.geo3d_ax.get_ylabel() == 'Y [mm]'

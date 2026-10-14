@@ -9,6 +9,37 @@ from .field_component import project_field
 log = logging.getLogger(__name__)
 
 
+def optimal_layout_current(target, layout) -> float:
+    """Least-squares current magnitude for B_parallel, without pointwise ratios.
+
+    A nonzero target with no generated field has no finite matching current
+    and is reported as unavailable (NaN). Two zero fields need zero current.
+    """
+    target = np.asarray(target, dtype=float)
+    layout = np.asarray(layout, dtype=float)
+    if target.shape != layout.shape or target.size == 0:
+        raise ValueError('Target and layout must contain matching field samples')
+    if not np.all(np.isfinite(target)) or not np.all(np.isfinite(layout)):
+        return np.nan
+    scale = float(np.max(np.abs(layout)))
+    if scale == 0:
+        return 0.0 if np.all(target == 0) else np.nan
+    normalized = layout / scale
+    with np.errstate(over='ignore', invalid='ignore', divide='ignore'):
+        current = (np.dot(normalized, target) / np.dot(normalized, normalized)) / scale
+    return float(abs(current)) if np.isfinite(current) else np.nan
+
+
+def _relative_field_errors(actual, reference):
+    """Maximum/mean percentage; zero-reference comparisons have explicit limits."""
+    denominator = np.max(np.abs(reference))
+    residual = np.abs(actual - reference)
+    if denominator == 0:
+        return (0.0, 0.0) if np.all(residual == 0) else (np.nan, np.nan)
+    relative = residual / denominator * 100
+    return float(np.max(relative)), float(np.mean(relative))
+
+
 def evaluate_field_errors(coil_parts: List[CoilPart], input_args: DataStructure, target_field: TargetField, sf_b_field: np.ndarray) -> (List[CoilPart], SolutionErrors):
     """
     Calculate relative errors between different input and output fields.
@@ -146,25 +177,14 @@ def evaluate_field_errors(coil_parts: List[CoilPart], input_args: DataStructure,
 
     # Calculate relative errors
     field_error_vals = FieldErrors()
-    field_error_vals.max_rel_error_layout_vs_target = np.max(
-        np.abs((layout_z - target_z) / np.max(np.abs(target_z)))) * 100
-    field_error_vals.mean_rel_error_layout_vs_target = np.mean(
-        np.abs((layout_z - target_z) / np.max(np.abs(target_z)))) * 100
-
-    field_error_vals.max_rel_error_unconnected_contours_vs_target = np.max(
-        np.abs((loop_z - target_z) / np.max(np.abs(target_z)))) * 100
-    field_error_vals.mean_rel_error_unconnected_contours_vs_target = np.mean(
-        np.abs((loop_z - target_z) / np.max(np.abs(target_z)))) * 100
-
-    field_error_vals.max_rel_error_layout_vs_stream_function_field = np.max(
-        np.abs((layout_z - sf_z) / np.max(np.abs(sf_z)))) * 100
-    field_error_vals.mean_rel_error_layout_vs_stream_function_field = np.mean(
-        np.abs((layout_z - sf_z) / np.max(np.abs(sf_z)))) * 100
-
-    field_error_vals.max_rel_error_unconnected_contours_vs_stream_function_field = np.max(
-        np.abs((loop_z - sf_z) / np.max(np.abs(sf_z)))) * 100
-    field_error_vals.mean_rel_error_unconnected_contours_vs_stream_function_field = np.mean(
-        np.abs((loop_z - sf_z) / np.max(np.abs(sf_z)))) * 100
+    (field_error_vals.max_rel_error_layout_vs_target,
+     field_error_vals.mean_rel_error_layout_vs_target) = _relative_field_errors(layout_z, target_z)
+    (field_error_vals.max_rel_error_unconnected_contours_vs_target,
+     field_error_vals.mean_rel_error_unconnected_contours_vs_target) = _relative_field_errors(loop_z, target_z)
+    (field_error_vals.max_rel_error_layout_vs_stream_function_field,
+     field_error_vals.mean_rel_error_layout_vs_stream_function_field) = _relative_field_errors(layout_z, sf_z)
+    (field_error_vals.max_rel_error_unconnected_contours_vs_stream_function_field,
+     field_error_vals.mean_rel_error_unconnected_contours_vs_stream_function_field) = _relative_field_errors(loop_z, sf_z)
 
     # Go back to the fields for 1 Ampere (Unit Current)
     combined_field_layout_per1Amp = np.zeros_like(combined_field_layout)
@@ -191,7 +211,7 @@ def evaluate_field_errors(coil_parts: List[CoilPart], input_args: DataStructure,
         combined_field_loops_per1Amp += coil_part.field_by_loops2 * possible_polarities[best_dir_loops][part_ind]
 
     # Calculate the ideal current strength for the connected layout to match the target field
-    opt_current_layout = np.abs(np.mean(target_z / layout_z))
+    opt_current_layout = optimal_layout_current(target_z, layout_z)
 
     # Return results
     solution_errors = SolutionErrors(field_error_vals=field_error_vals)

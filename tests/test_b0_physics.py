@@ -30,7 +30,7 @@ def test_target_uses_physical_axis_and_preserves_ellipsoid_radii(tmp_path, axis,
     np.testing.assert_allclose(b0_unit_vector(b0) @ data[key], coords['xyz'.index(axis)])
     np.testing.assert_allclose(data[key], b0_unit_vector(b0)[:, None] * coords['xyz'.index(axis)])
     cfg = Config(gradient_axis=axis, b0_direction=b0)
-    np.testing.assert_allclose(cfg.rotated_cylinder_axis, [1, 0, 0], atol=1e-14)
+    np.testing.assert_allclose(cfg.rotated_cylinder_axis, [0, 0, 1], atol=1e-14)
     assert cfg.internal_axis == axis
 
 

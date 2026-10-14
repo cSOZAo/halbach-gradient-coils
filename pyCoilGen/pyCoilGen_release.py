@@ -393,11 +393,13 @@ def pyCoilGen(log, input_args=None):
 
         # Finally, save the completed solution.
         runpoint_tag = 'final'
-        print(f'Solution saved to "{save(persistence_dir, project_name, runpoint_tag, solution)}"')
+        if input_args.save_solution:
+            print(f'Solution saved to "{save(persistence_dir, project_name, runpoint_tag, solution)}"')
 
         timer.stop()
     except Exception as e:
         log.error("Caught exception: %s", e)
-        save(persistence_dir, project_name, f'{runpoint_tag}_exception', solution)
+        if input_args.save_solution:
+            save(persistence_dir, project_name, f'{runpoint_tag}_exception', solution)
         raise e
     return solution

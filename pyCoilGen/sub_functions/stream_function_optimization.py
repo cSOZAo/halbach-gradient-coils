@@ -150,7 +150,7 @@ def stream_function_optimization(coil_parts: List[CoilPart], target_field, input
         ) @ reduced_sensitivity_matrix.T @ target_field_single
 
         # Find the constrained solution
-        stream_func_max = np.max(reduced_sf) * 2
+        stream_func_max = np.max(np.abs(reduced_sf)) * 2
         lb = np.ones_like(reduced_sf) * (-1) * stream_func_max
         ub = np.ones_like(reduced_sf) * stream_func_max
 
@@ -185,7 +185,22 @@ def stream_function_optimization(coil_parts: List[CoilPart], target_field, input
         log.debug("Detailed minimize result: Success: %s, message: %s", result.success, result.message)
         if get_level() >= DEBUG_VERBOSE:
             log.debug("Detailed minimize result: %s", result)
-        reduced_sf = result.x
+        if not result.success:
+            raise RuntimeError(f"Stream-function optimizer {input_args.minimize_method} did not converge: {result.message}")
+        candidate = np.asarray(result.x, dtype=float)
+        if candidate.shape != reduced_sf.shape or not np.all(np.isfinite(candidate)):
+            raise RuntimeError('Stream-function optimizer returned invalid or non-finite coefficients')
+        predicted = reduced_sensitivity_matrix @ candidate
+        candidate_cost = float(cost_function(candidate))
+        # Zero current and the Tikhonov start are both feasible. A claimed
+        # solution must not be worse than either for the same objective.
+        feasible_cost = min(float(cost_function(reduced_sf)), float(np.dot(target_field_single, target_field_single)))
+        tolerance = 1e-6 * max(abs(feasible_cost), np.finfo(float).tiny)
+        if (not np.all(np.isfinite(predicted)) or not np.isfinite(candidate_cost)
+                or not np.isfinite(np.linalg.norm(predicted - target_field_single))
+                or candidate_cost > feasible_cost + tolerance):
+            raise RuntimeError('Stream-function optimizer returned an invalid or worse field fit than a feasible starting point')
+        reduced_sf = candidate
 
     # Reexpand the stream potential to the boundary nodes
     opt_stream_func = reexpand_stream_function_for_boundary_nodes(

@@ -1,73 +1,210 @@
-"""
-Shared background-runner infrastructure for the GUI.
-
-Runs a blocking callable in a worker thread while piping its stdout/stderr to
-a queue that the Tk main loop drains into a ``tk.Text`` log widget. Keeps the
-UI responsive (pyCoilGen runs take minutes) and lets panels request an
-accept/reject decision (e.g. wire overlap) via a thread-safe dialog hook.
-"""
+"""One terminable GUI calculation per application, isolated in a process."""
 
 from __future__ import annotations
 
-import io
+import multiprocessing
+import os
+import pickle
 import queue
-import sys
+import signal
+import subprocess
 import threading
-import tkinter as tk
-from tkinter import ttk
 from typing import Callable, Optional
 
+from .jobs import JOB_KINDS, execute_job, job_output_dir, write_job_status
 
-class _StreamRedirect(io.TextIOBase):
-    """File-like object that enqueues lines for the GUI to drain."""
 
-    def __init__(self, q: queue.Queue):
-        self.q = q
-        self._buf = ''
+class JobCancelled(Exception):
+    """The user stopped the calculation; any output is partial."""
 
-    def write(self, s: str) -> int:
-        if not s:
-            return 0
-        self._buf += s
-        while '\n' in self._buf:
-            line, self._buf = self._buf.split('\n', 1)
-            self.q.put(line + '\n')
-        return len(s)
 
-    def flush(self):  # noqa: D401
-        if self._buf:
-            self.q.put(self._buf)
-            self._buf = ''
+class _WindowsJob:
+    """Closing this handle immediately terminates the worker and descendants."""
+
+    def __init__(self, pid):
+        import ctypes
+        from ctypes import wintypes
+
+        class BasicLimits(ctypes.Structure):
+            _fields_ = [
+                ('PerProcessUserTimeLimit', ctypes.c_int64),
+                ('PerJobUserTimeLimit', ctypes.c_int64),
+                ('LimitFlags', wintypes.DWORD),
+                ('MinimumWorkingSetSize', ctypes.c_size_t),
+                ('MaximumWorkingSetSize', ctypes.c_size_t),
+                ('ActiveProcessLimit', wintypes.DWORD),
+                ('Affinity', ctypes.c_size_t),
+                ('PriorityClass', wintypes.DWORD),
+                ('SchedulingClass', wintypes.DWORD),
+            ]
+
+        class IOCounters(ctypes.Structure):
+            _fields_ = [(name, ctypes.c_uint64) for name in (
+                'ReadOperationCount', 'WriteOperationCount', 'OtherOperationCount',
+                'ReadTransferCount', 'WriteTransferCount', 'OtherTransferCount')]
+
+        class ExtendedLimits(ctypes.Structure):
+            _fields_ = [('BasicLimitInformation', BasicLimits), ('IoInfo', IOCounters),
+                        ('ProcessMemoryLimit', ctypes.c_size_t),
+                        ('JobMemoryLimit', ctypes.c_size_t),
+                        ('PeakProcessMemoryUsed', ctypes.c_size_t),
+                        ('PeakJobMemoryUsed', ctypes.c_size_t)]
+
+        api = ctypes.WinDLL('kernel32', use_last_error=True)
+        api.CreateJobObjectW.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
+        api.CreateJobObjectW.restype = wintypes.HANDLE
+        api.SetInformationJobObject.argtypes = (wintypes.HANDLE, ctypes.c_int,
+                                                ctypes.c_void_p, wintypes.DWORD)
+        api.SetInformationJobObject.restype = wintypes.BOOL
+        api.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        api.OpenProcess.restype = wintypes.HANDLE
+        api.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+        api.AssignProcessToJobObject.restype = wintypes.BOOL
+        api.CloseHandle.argtypes = (wintypes.HANDLE,)
+        api.CloseHandle.restype = wintypes.BOOL
+        self.api = api
+        self.handle = api.CreateJobObjectW(None, None)
+        if not self.handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+        limits = ExtendedLimits()
+        limits.BasicLimitInformation.LimitFlags = 0x2000  # KILL_ON_JOB_CLOSE
+        process = None
+        try:
+            if not api.SetInformationJobObject(self.handle, 9, ctypes.byref(limits),
+                                               ctypes.sizeof(limits)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            process = api.OpenProcess(0x0100 | 0x0001, False, pid)
+            if not process or not api.AssignProcessToJobObject(self.handle, process):
+                raise ctypes.WinError(ctypes.get_last_error())
+        except OSError:
+            self.close()
+            raise
+        finally:
+            if process:
+                api.CloseHandle(process)
+
+    def close(self):
+        if self.handle:
+            self.api.CloseHandle(self.handle)
+            self.handle = None
+
+
+def _terminate_tree(process):
+    """Fallback when Windows job containment is unavailable; never blocks Tk."""
+    if not process.is_alive():
+        return
+    try:
+        if os.name == 'nt':
+            subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                           capture_output=True, timeout=4,
+                           creationflags=subprocess.CREATE_NO_WINDOW)
+        else:
+            os.killpg(process.pid, signal.SIGKILL)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    if process.is_alive():
+        process.kill()
 
 
 class WorkerRunner:
-    """
-    Owns the log queue and worker thread for a panel.
+    """GUI callbacks stay on Tk's main thread; calculations use spawn.
 
-    Usage in a panel:
-        self.runner = WorkerRunner(self.log_text, self.progress, self.root)
-        self.runner.run(target_fn, args=(...), on_done=self._on_done,
-                        ask_user=self._ask_user)
+    run_job(kind, cfg, extra=..., on_done=..., on_progress=..., ask_user=...)
+    is the GUI API. run() is retained for importable callables; GUI closures
+    must use run_job(). A single root owns the application-wide job lock.
     """
 
-    def __init__(self, log_widget: tk.Text, progress: Optional[ttk.Progressbar],
-                 root: tk.Tk):
-        self.log_widget = log_widget
-        self.progress = progress
-        self.root = root
-        self.log_q: queue.Queue = queue.Queue()
-        self.worker: Optional[threading.Thread] = None
+    def __init__(self, log_widget, progress, root):
+        self.log_widget, self.progress, self.root = log_widget, progress, root
+        self.log_q = queue.Queue()
+        self.worker = None
         self._poll_id = None
-        self._ask_user_callback: Optional[Callable[[str], bool]] = None
+        self._events = self._answers = None
+        self._windows_job = None
+        self._completion = None
+        self._startup_error = None
+        self._on_done = self._on_progress = self._ask_user_callback = None
         self.stop_requested = threading.Event()
+        self.job_kind = None
+        self.output_dir = ''
 
-    # ----- log draining ---------------------------------------------------
+    @property
+    def is_running(self):
+        # Keep the lock until the main-thread poll reports process exit.
+        return self.worker is not None
+
+    def _state_changed(self):
+        callback = getattr(self.root, 'on_job_state_changed', None)
+        if callback is not None:
+            callback()
+
+    def run_job(self, kind, cfg, *, extra=None, on_done=None, ask_user=None,
+                on_progress=None):
+        if kind not in JOB_KINDS:
+            raise ValueError(f'Unknown GUI job: {kind}')
+        return self._start(kind, cfg, dict(extra or {}), on_done, ask_user, on_progress)
+
+    def run(self, target: Callable, args: tuple = (), kwargs: dict | None = None,
+            on_done: Optional[Callable] = None, ask_user: Optional[Callable] = None):
+        """Compatibility API; target must be importable/picklable for spawn."""
+        return self._start('_callable', None, {
+            'target': target, 'args': args, 'kwargs': kwargs or {},
+            'ask_user_enabled': ask_user is not None,
+        }, on_done, ask_user, None)
+
+    def _start(self, kind, cfg, extra, on_done, ask_user, on_progress):
+        active = getattr(self.root, '_active_job_runner', None)
+        if active is not None and active.is_running:
+            self.log('>> A calculation is already running. Stop it before starting another.\n')
+            self.start_polling()
+            return False
+        self.root._active_job_runner = self
+        self.stop_requested.clear()
+        self._completion = None
+        self._startup_error = None
+        self.job_kind, self.output_dir = kind, job_output_dir(kind, cfg, extra)
+        self._on_done, self._on_progress, self._ask_user_callback = on_done, on_progress, ask_user
+        self.log_widget.delete('1.0', 'end')
+        self.log_q = queue.Queue()
+        if self.progress is not None:
+            self.progress['value'] = 0
+        try:
+            pickle.dumps((kind, cfg, extra))
+            context = multiprocessing.get_context('spawn')
+            self._events, self._answers = context.Queue(), context.Queue()
+            gate = context.Event()
+            self.worker = context.Process(
+                target=execute_job,
+                args=(kind, cfg, extra, self._events, self._answers, gate, self.output_dir),
+                name=f'CoilGen-{kind}',
+            )
+            self.worker.start()
+            if os.name == 'nt':
+                try:
+                    self._windows_job = _WindowsJob(self.worker.pid)
+                except OSError:
+                    self._windows_job = None  # taskkill /T fallback
+            write_job_status(self.output_dir, 'running', kind=kind, pid=self.worker.pid)
+            gate.set()  # child cannot launch tools before containment is ready
+        except Exception as exc:
+            if self.worker is not None and self.worker.pid is not None:
+                self._startup_error = exc
+                self.request_stop()
+                self._completion = (None, exc)
+                self.start_polling()
+            else:
+                self._finish(None, exc)
+            return False
+        self._state_changed()
+        self.start_polling()
+        return True
 
     def start_polling(self):
         if self._poll_id is None:
-            self._drain_log()
+            self._poll_id = self.root.after(60, self._drain_log)
 
     def _drain_log(self):
+        self._poll_id = None
         try:
             while True:
                 line = self.log_q.get_nowait()
@@ -75,88 +212,98 @@ class WorkerRunner:
                 self.log_widget.see('end')
         except queue.Empty:
             pass
-        self._poll_id = self.root.after(120, self._drain_log)
+        if self.worker is not None:
+            # Killed queues may contain partial frames. Discard them on Stop
+            # so cancellation never waits for a half-written result/log.
+            if not self.stop_requested.is_set():
+                self._drain_events()
+            if not self.worker.is_alive():
+                self.worker.join(timeout=0)
+                if self.stop_requested.is_set():
+                    self._finish(None, self._startup_error or JobCancelled(
+                        'Calculation stopped; output is partial.'))
+                else:
+                    self._drain_events()
+                    result, error = self._completion or (
+                        None, RuntimeError(f'Calculation process exited with code {self.worker.exitcode}.'))
+                    self._finish(result, error)
+        if self.worker is not None or not self.log_q.empty():
+            self.start_polling()
+
+    def _drain_events(self):
+        if self._events is None:
+            return
+        for _ in range(200):
+            try:
+                event = self._events.get_nowait()
+            except (queue.Empty, EOFError, OSError):
+                break
+            kind = event[0]
+            if kind == 'log':
+                self.log_widget.insert('end', event[1])
+                self.log_widget.see('end')
+            elif kind == 'question':
+                self._answers.put(self.ask_user(event[1]))
+            elif kind == 'progress' and self._on_progress is not None:
+                self._on_progress(*event[1:])
+            elif kind == 'done':
+                self._completion = (event[1], None)
+            elif kind == 'error':
+                self.log(event[2])
+                self._completion = (None, RuntimeError(event[1]))
+
+    def ask_user(self, question):
+        """Only the Tk poll calls this; a child requests decisions via its queue."""
+        callback = self._ask_user_callback
+        return True if callback is None else bool(callback(question))
+
+    def _finish(self, result, error):
+        callback = self._on_done
+        status = 'cancelled' if isinstance(error, JobCancelled) else 'error' if error else 'completed'
+        pid = self.worker.pid if self.worker is not None else None
+        try:
+            write_job_status(self.output_dir, status, kind=self.job_kind, pid=pid,
+                             error=error)
+        except OSError as exc:
+            self.log(f'>> Could not write job status: {exc}\n')
+        if self._windows_job is not None:
+            self._windows_job.close()
+            self._windows_job = None
+        for channel in (self._events, self._answers):
+            if channel is not None:
+                channel.cancel_join_thread()
+                channel.close()
+        self._events = self._answers = None
+        self.worker = None
+        self._on_done = self._on_progress = self._ask_user_callback = None
+        if getattr(self.root, '_active_job_runner', None) is self:
+            self.root._active_job_runner = None
+        if self.progress is not None:
+            self.progress.configure(value=100 if error is None else 0)
+        self.log('\n>> CANCELLED\n' if status == 'cancelled' else
+                 f'\n>> ERROR: {error}\n' if error else '\n>> DONE\n')
+        self._state_changed()
+        if callback is not None:
+            callback(result, error)
 
     def stop_polling(self):
         if self._poll_id is not None:
             self.root.after_cancel(self._poll_id)
             self._poll_id = None
 
-    # ----- user decision hook (overlap accept/reject) --------------------
-
-    def ask_user(self, question: str) -> bool:
-        """
-        Called from the worker thread. Schedule the actual Tk dialog on the
-        main thread and block only the worker until the user answers.
-        """
-        callback = self._ask_user_callback
-        if callback is None:
-            return True
-        answered = threading.Event()
-        result = {'value': False}
-
-        def _show_dialog():
-            try:
-                result['value'] = bool(callback(question))
-            finally:
-                answered.set()
-
-        self.root.after(0, _show_dialog)
-        answered.wait()
-        return result['value']
-
-    # ----- run ------------------------------------------------------------
-
-    def run(self, target: Callable, args: tuple = (), kwargs: dict | None = None,
-            on_done: Optional[Callable] = None, ask_user: Optional[Callable] = None):
-        if self.worker is not None and self.worker.is_alive():
-            self.log(">> a job is already running\n")
-            return
-        self.stop_requested.clear()
-        self.log_widget.delete('1.0', 'end')
-        if self.progress is not None:
-            self.progress['value'] = 0
-        self.start_polling()
-
-        kwargs = kwargs or {}
-        self._ask_user_callback = ask_user
-
-        def _worker():
-            old_stdout, old_stderr = sys.stdout, sys.stderr
-            redirect = _StreamRedirect(self.log_q)
-            sys.stdout = redirect
-            sys.stderr = redirect
-            # Wire a thread-safe proxy through to the worker target. The proxy
-            # schedules the Tk messagebox on the main thread.
-            if ask_user is not None:
-                kwargs.setdefault('ask_user', self.ask_user)
-            try:
-                result = target(*args, **kwargs)
-                self.log_q.put('\n>> DONE\n')
-                if on_done is not None:
-                    self.root.after(0, lambda: on_done(result, None))
-            except Exception as exc:  # surface to the log + on_done
-                self.log_q.put(f'\n>> ERROR: {exc}\n')
-                if on_done is not None:
-                    err = exc
-                    self.root.after(0, lambda: on_done(None, err))
-            finally:
-                self._ask_user_callback = None
-                sys.stdout, sys.stderr = old_stdout, old_stderr
-                redirect.flush()
-                if self.progress is not None:
-                    self.root.after(0, lambda: self.progress.configure(value=100))
-
-        self.worker = threading.Thread(target=_worker, daemon=True)
-        self.worker.start()
-
-    def log(self, msg: str):
-        self.log_q.put(msg)
+    def log(self, message):
+        self.log_q.put(message)
 
     def request_stop(self):
-        """Ask the running job to stop at its next cooperative checkpoint."""
+        if self.worker is None or self.stop_requested.is_set():
+            return
         self.stop_requested.set()
-        self.log(">> stop requested; waiting for the current step to finish\n")
+        self.log('>> Stopping calculation and child processes now.\n')
+        if self._windows_job is not None:
+            self._windows_job.close()
+            self._windows_job = None
+        else:
+            threading.Thread(target=_terminate_tree, args=(self.worker,), daemon=True).start()
 
-    def should_stop(self) -> bool:
+    def should_stop(self):
         return self.stop_requested.is_set()

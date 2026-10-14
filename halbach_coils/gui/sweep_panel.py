@@ -19,7 +19,7 @@ from typing import Optional
 from coilgen.config import CONDUCTOR_MATERIAL_RESISTIVITY, Config
 from coilgen import sweep as sweep_mod
 from coilgen.presets import load_config_preset
-from .runner import WorkerRunner
+from .runner import WorkerRunner, JobCancelled
 from .units import mm_to_m
 from .advanced_controls import AdvancedControls
 
@@ -98,7 +98,9 @@ class SweepPanel(ttk.Frame):
 
         bar = ttk.Frame(self)
         bar.pack(fill='x', padx=8, pady=4)
-        ttk.Button(bar, text="Run sweep", command=self._on_run).pack(side='left')
+        self.run_btn = ttk.Button(bar, text="Run sweep", command=self._on_run)
+        self.run_btn.pack(side='left')
+        self.stop_btn = ttk.Button(bar, text="Stop", command=self._on_stop)
         ttk.Button(bar, text="Load previous CSV...",
                    command=self._load_previous_sweep).pack(side='left', padx=(8, 0))
         ttk.Button(bar, text="Use selected in Pipeline",
@@ -245,18 +247,13 @@ class SweepPanel(ttk.Frame):
         self._clear_results()
 
         def _on_progress(phase, tk, event, row=None):
-            # called from worker thread -> schedule UI update on main thread
             if event == 'done' and row is not None:
-                self.root.after(0, lambda r=row: self._insert_result_row(r))
-
-        def _target():
-            return sweep_mod.run_tikhonov_sweep(
-                cfg, tk_min=tk_min, tk_max=tk_max, n_coarse=n_coarse,
-                fine=fine, output_base_dir=out_dir,
-                on_progress=_on_progress,
-            )
+                self._insert_result_row(row)
 
         def _on_done(result, err):
+            if isinstance(err, JobCancelled):
+                self.runner.log(self.root.tr("Stopped. Partial output files were kept.") + '\n')
+                return
             if err is not None:
                 messagebox.showerror(
                     self.root.tr("Sweep"), self.root.tr("Failed: {error}", error=err))
@@ -273,7 +270,24 @@ class SweepPanel(ttk.Frame):
                         error=be['Error_Medio_pct'],
                         path=result.csv_path))
 
-        self.runner.run(_target, on_done=_on_done)
+        self.runner.run_job('sweep', cfg,
+                            extra={'tk_min': tk_min, 'tk_max': tk_max,
+                                   'n_coarse': n_coarse, 'fine': fine,
+                                   'output_base_dir': out_dir},
+                            on_done=_on_done, on_progress=_on_progress)
+
+    def _set_running(self, running):
+        self.run_btn.configure(state='disabled' if running else 'normal')
+        if running:
+            self.stop_btn.configure(state='normal', text=self.root.tr("Stop"))
+            if not self.stop_btn.winfo_ismapped():
+                self.stop_btn.pack(side='left', padx=6, before=self.progress)
+        else:
+            self.stop_btn.pack_forget()
+
+    def _on_stop(self):
+        self.runner.request_stop()
+        self.stop_btn.configure(state='disabled', text=self.root.tr("Stopping..."))
 
     def retranslate(self):
         self.coilgen_advanced.retranslate()

@@ -250,7 +250,7 @@ def print_metrics_summary(metrics: Dict[str, Any]) -> None:
     """Print the headline numbers to stdout (console panel)."""
     label = metrics['axis_label']
     print("\n" + "-" * 70)
-    print("  METRICS")
+    print("  COILGEN WIRE METRICS (before terminal leads)")
     print("-" * 70)
     print(f"  Gradient axis          : {label}")
     print(f"  B0 / field component   : {metrics['b0_direction']} / {metrics['field_component_label']}")

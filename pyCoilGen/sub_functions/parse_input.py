@@ -322,6 +322,9 @@ def parse_input(parse_cli=True):
 
     # Add the parameters for the generation of the (default) biplanar mesh
     parser.add_argument('--persistence_dir', type=str, default='debug', help=f"Directory to write persistence data")
+    parser.add_argument('--save-solution', dest='save_solution',
+                        action=argparse.BooleanOptionalAction, default=True,
+                        help='Persist complete solver matrices; disable for compact application output')
 
     # Add a parameter for the location of the FastHenry2 executable, platform aware
     os_system = platform.system()
