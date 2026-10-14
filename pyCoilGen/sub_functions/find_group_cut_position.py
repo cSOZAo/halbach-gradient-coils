@@ -43,8 +43,8 @@ def find_group_cut_position(loop_group: TopoGroup, group_center: np.ndarray, mes
             cut_plane_direction = cut_plane_direction / np.linalg.norm(cut_plane_direction)
         else:
             alternative_center_normal = b_0_direction
-            coord_vec_min_ind = np.argmin([np.dot(b_0_direction, [1, 0, 0]), np.dot(
-                b_0_direction, [0, 1, 0]), np.dot(b_0_direction, [0, 0, 1])])
+            # Choose the least parallel reference for either B0 polarity.
+            coord_vec_min_ind = np.argmin(np.abs(b_0_direction))
 
             if coord_vec_min_ind == 0:
                 alternative_center_normal = np.cross(b_0_direction, [1, 0, 0])

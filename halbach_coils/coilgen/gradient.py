@@ -45,53 +45,6 @@ def _setup_matplotlib(show_plots: bool):
     logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
 
-def _make_plots(metrics: dict, cfg: Config):
-    import matplotlib.pyplot as plt
-
-    label = metrics['axis_label']
-    coord_grad = metrics['coord_grad']
-    layout_mT = metrics['layout_mT']
-    target_scaled_mT = metrics['target_scaled_mT']
-    layout_fit = metrics['layout_fit']
-    slope = metrics['slope_mTmA']
-    rmse = metrics['rmse_gradient_mTmA']
-
-    coord_cm = coord_grad * 100.0
-    order = np.argsort(coord_grad)
-
-    fig1, ax1 = plt.subplots(figsize=(10, 6),
-                             num=f'Objective vs Generated — {label}')
-    ax1.plot(coord_cm[order], target_scaled_mT[order],
-             'r-', linewidth=2.0, label='Objective (target field, scaled)')
-    ax1.scatter(coord_cm, layout_mT, s=14, alpha=0.55, color='steelblue',
-                label='Generated (layout @ 1 A)')
-    ax1.set_xlabel(f'{label} [cm]')
-    ax1.set_ylabel(r'$B_z$ [mT/A]')
-    ax1.set_title(f'Objective vs Generated Field — {label}')
-    ax1.grid(True, linestyle=':', alpha=0.6)
-    ax1.legend(loc='best')
-    fig1.tight_layout()
-
-    fig2, ax2 = plt.subplots(figsize=(10, 6), num=f'Linearity — {label}')
-    ax2.scatter(coord_cm, layout_mT, s=14, alpha=0.55, color='steelblue',
-                label='Generated field')
-    ax2.plot(coord_cm[order], layout_fit[order], 'r-', linewidth=2.0,
-             label=f'Linear fit: slope = {slope:.4f} mT/(m.A)')
-    ax2.set_xlabel(f'{label} [cm]')
-    ax2.set_ylabel(r'$B_z$ [mT/A]')
-    ax2.set_title(f'Linearity of Generated Gradient — {label}\n'
-                  f'RMSE (residual / range) = {rmse:.4f} mT/(m.A)')
-    ax2.grid(True, linestyle=':', alpha=0.6)
-    ax2.legend(loc='best')
-    fig2.tight_layout()
-
-    import matplotlib.pyplot as _plt
-    if _plt.get_backend().lower() == 'agg':
-        _plt.close('all')
-    else:
-        _plt.show()
-
-
 def run_gradient(
     cfg: Config,
     output_dir: Optional[str] = None,
@@ -106,6 +59,9 @@ def run_gradient(
     the output dir. ``check_overlap`` defaults to ``cfg.overlap_warn``.
     """
     from pyCoilGen.pyCoilGen_release import pyCoilGen
+    from .advanced import validate_advanced_config
+
+    validate_advanced_config(cfg)
 
     _setup_matplotlib(cfg.show_plots)
     if not logging.getLogger().hasHandlers():
@@ -128,6 +84,7 @@ def run_gradient(
         cfg.target.rx, cfg.target.ry, cfg.target.rz,
         cfg.target.resol_radial, cfg.target.resol_angular,
         target_dir,
+        b0_direction=cfg.b0_direction,
     )
     print(f"[target] built {os.path.basename(target_path)}  (field = {target_fname})")
 
@@ -184,13 +141,16 @@ def run_gradient(
         'tikhonov_reg_factor':          cfg.tikhonov_factor,
         'output_directory':             output_dir,
         'field_shape_function':         internal_axis,
+        'b_0_direction':                cfg.b0_vector.tolist(),
         'project_name':                 project_stem,
     }
+    arg_dict.update(cfg.advanced.to_coilgen_args())
 
     print("\n" + "=" * 70)
     print(f"  Running pyCoilGen — {cfg.axis_label}  |  Tikhonov={cfg.tikhonov_factor:g}"
           f"  |  levels={cfg.num_levels}")
-    print(f"  (Internal mapped axis : {internal_axis})")
+    print(f"  Physical gradient     : d({cfg.field_component_label})/d{internal_axis}")
+    print(f"  B0 direction          : {cfg.b0_direction.upper()}")
     print(f"  FastHenry enabled     : {cfg.fasthenry.enabled}")
     print(f"  FastHenry binary      : {fh_resolved or 'not configured'}")
     print(f"  FastHenry available   : {fh_available}")
@@ -225,9 +185,9 @@ def run_gradient(
         fasthenry_available=fh_available,
     )
     print_metrics_summary(metrics)
-
-    if cfg.show_plots:
-        _make_plots(metrics, cfg)
+    from .field_plots import save_field_plots
+    metrics['field_plots'] = save_field_plots(
+        solution, output_dir, cfg.gradient_axis, cfg.b0_direction, project_stem)
 
     # ----- Multi-wire crossing check --------------------------------------
     overlap_report: Optional[OverlapReport] = None
@@ -259,6 +219,8 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Run a single gradient coil design.")
     parser.add_argument('--axis', default='y', choices=('x', 'y', 'z'))
+    parser.add_argument('--b0', default='+y', choices=('+x', '-x', '+y', '-y', '+z', '-z'),
+                        help='Physical B0 direction; use --b0=-y for a negative direction')
     parser.add_argument('--tikhonov', type=float, default=2500)
     parser.add_argument('--levels', type=int, default=26)
     parser.add_argument('--radius', type=float, default=0.150)
@@ -269,6 +231,7 @@ def main():
 
     cfg = Config(
         gradient_axis=args.axis,
+        b0_direction=args.b0,
         tikhonov_factor=args.tikhonov,
         num_levels=args.levels,
         show_plots=not args.no_plots,

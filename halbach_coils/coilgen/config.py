@@ -13,9 +13,9 @@ Workflow
 
 Coordinate frame
 ----------------
-B0 is parallel to +Y. pyCoilGen optimizes Bz, so the cylinder mesh is rotated
-R_y(pi/2) (bore axis -> +X). ``Config.internal_axis`` maps a physical gradient
-axis to the pyCoilGen internal axis (x->y, y->z, z->x).
+All target coordinates, fields and exported geometry use the same physical
+XYZ frame. The default cylinder rotation R_y(pi/2) puts the bore along +X.
+B0 defaults to +Y and is selectable; Gx/Gy/Gz mean d(B dot B0_hat)/d(x/y/z).
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ import numpy as np
 
 from . import geometry as geo
 from . import paths as _paths
+from .advanced import AdvancedConfig
 
 
 # Electrical resistivity at approximately 20 °C [ohm.m].  pyCoilGen's
@@ -295,6 +296,7 @@ class PipelineControl:
 @dataclass
 class Config:
     gradient_axis: str = 'x'                   # 'x' | 'y' | 'z'
+    b0_direction: str = '+y'                  # '+x' | '-x' | '+y' | '-y' | '+z' | '-z'
     tikhonov_factor: float = 2500
     num_levels: int = 26
 
@@ -307,6 +309,7 @@ class Config:
     shell: ShellConfig = field(default_factory=ShellConfig)
     sweep: SweepConfig = field(default_factory=SweepConfig)
     control: PipelineControl = field(default_factory=PipelineControl)
+    advanced: AdvancedConfig = field(default_factory=AdvancedConfig)
 
     output_dir: str = ''                       # run output folder
     show_plots: bool = True
@@ -316,6 +319,8 @@ class Config:
     def __post_init__(self) -> None:
         if self.gradient_axis.lower() not in ('x', 'y', 'z'):
             raise ValueError(f"gradient_axis must be 'x', 'y' or 'z', got {self.gradient_axis!r}")
+        self.gradient_axis = self.gradient_axis.lower()
+        self.b0_direction = geo.normalize_b0_direction(self.b0_direction)
         if self.leads.preset is None:
             self.leads.preset = _LEAD_PRESETS[self.gradient_axis.lower()]
         if self.shell.stl_dir == '':
@@ -327,7 +332,17 @@ class Config:
 
     @property
     def internal_axis(self) -> str:
-        return geo.internal_field_axis(self.gradient_axis)
+        # Kept as a compatibility property; there is no hidden axis permutation.
+        return self.gradient_axis.lower()
+
+    @property
+    def b0_vector(self) -> np.ndarray:
+        return geo.b0_unit_vector(self.b0_direction)
+
+    @property
+    def field_component_label(self) -> str:
+        direction = geo.normalize_b0_direction(self.b0_direction)
+        return f"{'-' if direction[0] == '-' else ''}B{direction[1].upper()}"
 
     @property
     def axis_label(self) -> str:
@@ -570,8 +585,12 @@ class Config:
         """Flat dict of user parameters for the metrics txt header."""
         return {
             'gradient_axis': self.gradient_axis,
+            'b0_direction': self.b0_direction,
+            'b0_vector': self.b0_vector.tolist(),
+            'coordinate_frame': 'physical_xyz',
             'tikhonov_factor': self.tikhonov_factor,
             'num_levels': self.num_levels,
+            'advanced_coilgen': self.advanced.to_coilgen_args(),
             'target_rx_m': self.target.rx,
             'target_ry_m': self.target.ry,
             'target_rz_m': self.target.rz,

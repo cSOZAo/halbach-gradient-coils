@@ -5,7 +5,8 @@ Contents
 --------
 - Elementary rotation matrices (rotx / roty / rotz).
 - Rodrigues rotation for the cylinder mesh rotation.
-- ``internal_field_axis``: physical G{x,y,z} -> pyCoilGen internal axis.
+- ``internal_field_axis``: historical axis suffix for legacy STL lookup only.
+- ``b0_unit_vector``: signed physical B0 direction.
 - ``rotated_cylinder_axis``: bore axis after the R_y(pi/2) mesh rotation.
 - ``build_target_field_file``: spherical target-field .npy for an axis.
 - Fusion STL dimension detection and wire STL measurement.
@@ -63,22 +64,32 @@ _AXIS_MAP = {'x': 'y', 'y': 'z', 'z': 'x'}
 
 def internal_field_axis(gradient_axis: str) -> str:
     """
-    pyCoilGen ``field_shape_function`` value for a physical gradient axis.
+    Legacy filename mapping, retained only for locating old exported STLs.
 
-    The cylinder is rotated (CYL_ROT_AXIS=Y, CYL_ROT_ANGLE=90 deg) so the
-    generated fields are permuted: physical Gx/Gy/Gz map to internal y/z/x.
-    The internal axis is used for field construction, but is intentionally not
-    repeated in output STL names (the physical axis is already in the stem).
+    The original workflow permuted axis labels without rotating coordinates
+    or field vectors. New designs use physical XYZ directly.
     """
     return _AXIS_MAP[gradient_axis.lower()]
 
 
-# Target-grid rotation per physical axis (MATLAB Lin1/Lin2/Lin3 convention).
-_ROTATIONS_BY_AXIS = {
-    'x': rotx(0),            # identity  -> Lin1 (Gx)
-    'y': rotz(np.pi / 2),    # +90 deg Z -> Lin2 (Gy)
-    'z': roty(-np.pi / 2),   # -90 deg Y -> Lin3 (Gz)
-}
+def normalize_b0_direction(direction: str) -> str:
+    """Canonical signed physical Cartesian direction (bare axes mean positive)."""
+    value = str(direction).strip().lower()
+    if value in ('x', 'y', 'z'):
+        value = '+' + value
+    if value not in ('+x', '-x', '+y', '-y', '+z', '-z'):
+        raise ValueError(f"B0 direction must be ±X, ±Y or ±Z, got {direction!r}")
+    return value
+
+
+def b0_unit_vector(direction: str) -> np.ndarray:
+    value = normalize_b0_direction(direction)
+    vector = np.zeros(3)
+    vector['xyz'.index(value[1])] = -1.0 if value[0] == '-' else 1.0
+    return vector
+
+
+# File/key names retained for compatibility; coordinates are physical XYZ.
 _FNAME_BY_AXIS = {'x': 'lin_1', 'y': 'lin_2', 'z': 'lin_3'}
 _FILENAME_BY_AXIS = {
     'x': 'OSI2_GradTarget_Lin1.npy',
@@ -103,14 +114,13 @@ def build_target_field_file(axis: str,
                             target_rz: float,
                             resol_radial: int,
                             resol_angular: int,
-                            target_dir: str) -> tuple[str, str]:
+                            target_dir: str,
+                            b0_direction: str = '+y') -> tuple[str, str]:
     """
-    Write the .npy target-field file for ``axis`` (an internal pyCoilGen axis).
+    Write a physical XYZ target: B = B0_hat * coordinate[axis].
 
-    Builds a spherical (r, theta, phi) grid inside the target ellipsoid and
-    stores the scalar field ``x1`` (linear in X); rotating the coordinate
-    cloud relabels it to the requested axis — same convention as the MATLAB
-    script. Returns ``(path, field_name)``.
+    The ellipsoid radii always refer to physical X/Y/Z. Changing the gradient
+    or B0 direction never rotates the ROI or the winding surface.
     """
     d1 = 1 / (resol_radial - 1)
     d2 = np.pi / (resol_angular - 1)
@@ -126,12 +136,18 @@ def build_target_field_file(axis: str,
     x3 = target_rz * r * np.cos(t)
     points = np.vstack([x1, x2, x3])
 
-    coords = _ROTATIONS_BY_AXIS[axis] @ points
+    axis = axis.lower()
+    if axis not in ('x', 'y', 'z'):
+        raise ValueError(f"Invalid gradient axis: {axis!r}")
+    coords = points
     fname = _FNAME_BY_AXIS[axis]
     path = os.path.join(target_dir, _FILENAME_BY_AXIS[axis])
 
     data = {'coords': coords.astype(np.float64),
-            fname: x1.astype(np.float64)}
+            fname: b0_unit_vector(b0_direction)[:, None] * coords['xyz'.index(axis)],
+            'coordinate_frame': 'physical_xyz',
+            'gradient_axis': axis,
+            'b0_direction': normalize_b0_direction(b0_direction)}
     # pyCoilGen does [loaded] = np.load(..., allow_pickle=True)
     np.save(path, np.array([data], dtype=object), allow_pickle=True)
     return path, fname

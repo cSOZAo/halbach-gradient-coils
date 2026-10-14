@@ -41,6 +41,7 @@ class PipelineResult:
 
     output_dir: str
     discarded: bool = False
+    field_plots: dict | None = None
 
 
 def _coil_only_wire_paths(folder: str) -> list[str]:
@@ -125,6 +126,7 @@ def run_pipeline(cfg: Config, should_stop=None, ask_user=None,
     allocates a fresh ``unique_run_dir`` under ``resultados/pipeline/`` when
     no output directory was supplied.
     """
+    field_plots = None
     if cfg.output_dir:
         run_dir = os.path.abspath(cfg.output_dir)
         os.makedirs(run_dir, exist_ok=True)
@@ -160,6 +162,7 @@ def run_pipeline(cfg: Config, should_stop=None, ask_user=None,
         print("[1/3] Running pyCoilGen (gradient)...")
         _solution, _metrics, collision_report = run_gradient(
             cfg, output_dir=run_dir, check_overlap=cfg.overlap_warn)
+        field_plots = _metrics.get('field_plots')
         print()
         if collision_report is not None and collision_report.n_collisions > 0:
             question = collision_report.user_question(question_language)
@@ -171,7 +174,7 @@ def run_pipeline(cfg: Config, should_stop=None, ask_user=None,
                 else:
                     print("\n  The user discarded the result.")
                     print("  The leads and shell stages will not run.")
-                return PipelineResult(run_dir, discarded=True)
+                return PipelineResult(run_dir, discarded=True, field_plots=field_plots)
             if ask_user is not None:
                 if question_language == "es":
                     print("\n  El usuario aceptó continuar con el resultado.")
@@ -183,7 +186,7 @@ def run_pipeline(cfg: Config, should_stop=None, ask_user=None,
     if cfg.control.run_leads:
         if _stop_requested():
             print("  Stop requested before leads step.")
-            return PipelineResult(run_dir)
+            return PipelineResult(run_dir, field_plots=field_plots)
         wire_stl = _ensure_wire_exists(cfg, run_dir, cfg.control.run_gradient)
         print("[2/3] Adding lead wires...")
         run_leads(cfg, input_stl=wire_stl)
@@ -192,7 +195,7 @@ def run_pipeline(cfg: Config, should_stop=None, ask_user=None,
     if cfg.control.run_shell:
         if _stop_requested():
             print("  Stop requested before shell step.")
-            return PipelineResult(run_dir)
+            return PipelineResult(run_dir, field_plots=field_plots)
         print("[3/3] Carving shell halves...")
         run_shell(cfg, output_dir=run_dir)
         print()
@@ -200,12 +203,14 @@ def run_pipeline(cfg: Config, should_stop=None, ask_user=None,
     print("=" * 70)
     print("  Pipeline complete.")
     print("=" * 70)
-    return PipelineResult(run_dir)
+    return PipelineResult(run_dir, field_plots=field_plots)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Run the full coil-mold pipeline.")
     parser.add_argument('--axis', default='y', choices=('x', 'y', 'z'))
+    parser.add_argument('--b0', default='+y', choices=('+x', '-x', '+y', '-y', '+z', '-z'),
+                        help='Physical B0 direction; use --b0=-y for a negative direction')
     parser.add_argument('--tikhonov', type=float, default=2500)
     parser.add_argument('--levels', type=int, default=26)
     parser.add_argument('--radius', type=float, default=0.150)
@@ -221,6 +226,7 @@ def main():
 
     cfg = Config(
         gradient_axis=args.axis,
+        b0_direction=args.b0,
         tikhonov_factor=args.tikhonov,
         num_levels=args.levels,
         show_plots=not args.no_plots,

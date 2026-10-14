@@ -3,6 +3,7 @@ import numpy as np
 from typing import List
 
 from .data_structures import CoilPart, TargetField, LayoutGradient, WirePart
+from .field_component import field_direction
 
 
 def calculate_gradient(coil_parts: List[CoilPart], input_args, target_field: TargetField) -> LayoutGradient:
@@ -56,10 +57,12 @@ def calculate_gradient(coil_parts: List[CoilPart], input_args, target_field: Tar
     gradient_direction = np.array([norm_dir_x, norm_dir_y, norm_dir_z], dtype=float)
     gradient_direction /= np.linalg.norm(gradient_direction)
 
-    # Project the gradient direction to the full set of cartesian gradients
-    layout_gradient.gradient_in_target_direction = np.sqrt((gradient_direction[0] * layout_gradient.dBzdxyz[:, 0])**2 +
-                                                           (gradient_direction[1] * layout_gradient.dBzdxyz[:, 1])**2 +
-                                                           (gradient_direction[2] * layout_gradient.dBzdxyz[:, 2])**2)
+    # d(B dot B0_hat)/d(gradient direction), preserving the gradient's sign.
+    b0 = field_direction(input_args)
+    component_gradient = (b0[0] * layout_gradient.dBxdxyz
+                          + b0[1] * layout_gradient.dBydxyz
+                          + b0[2] * layout_gradient.dBzdxyz)
+    layout_gradient.gradient_in_target_direction = component_gradient @ gradient_direction
     layout_gradient.mean_gradient_in_target_direction = np.nanmean(layout_gradient.gradient_in_target_direction)
     layout_gradient.std_gradient_in_target_direction = np.nanstd(layout_gradient.gradient_in_target_direction)
 

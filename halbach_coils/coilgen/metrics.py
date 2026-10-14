@@ -19,7 +19,7 @@ from typing import Any, Dict
 
 import numpy as np
 
-from .geometry import internal_field_axis
+from .geometry import b0_unit_vector, normalize_b0_direction
 
 
 def _float_or_nan(value: Any) -> float:
@@ -66,15 +66,17 @@ def compute_metrics(solution,
     (target radii, cylinder dims, tikhonov, levels, wire cross-section, ...).
     Returns a dict with the headline numbers plus the arrays needed for plots.
     """
-    internal_axis = internal_field_axis(gradient_axis)
+    internal_axis = gradient_axis.lower()
     axis_index = {'x': 0, 'y': 1, 'z': 2}[internal_axis]
     axis_label = gradient_axis.upper()
 
-    coords = solution.target_field.coords                       # (3, N) [m]
+    b0_direction = normalize_b0_direction(params.get('b0_direction', '+z'))
+    b0_vector = b0_unit_vector(b0_direction)
+    field_component_label = f"{'-' if b0_direction[0] == '-' else ''}B{b0_direction[1].upper()}"
+    coords = solution.target_field.coords                       # (3, N), physical [m]
     coord_grad = coords[axis_index, :]                          # [m]
-    # pyCoilGen optimizes Bz internally -> index 2 is the relevant component.
-    layout_field = solution.solution_errors.combined_field_layout_per1Amp[2]  # [T/A]
-    target_field = solution.solution_errors.target_field_1A.b[2]              # [T/A]
+    layout_field = b0_vector @ solution.solution_errors.combined_field_layout_per1Amp
+    target_field = b0_vector @ solution.solution_errors.target_field_1A.b
 
     layout_mT = layout_field * 1000.0
     target_mT = target_field * 1000.0
@@ -163,6 +165,9 @@ def compute_metrics(solution,
         fh.write(f"project_name              = {project_name}\n")
         fh.write(f"gradient_axis             = {gradient_axis}\n")
         fh.write(f"internal_axis             = {internal_axis}\n")
+        fh.write(f"b0_direction              = {b0_direction}\n")
+        fh.write("coordinate_frame          = physical_xyz\n")
+        fh.write(f"field_component           = {field_component_label}\n")
         fh.write("\n[USER PARAMETERS]\n")
         for key, value in params.items():
             fh.write(f"{key:<32} = {value}\n")
@@ -209,6 +214,10 @@ def compute_metrics(solution,
     return {
         'gradient_axis': gradient_axis,
         'internal_axis': internal_axis,
+        'b0_direction': b0_direction,
+        'b0_vector': b0_vector,
+        'field_component_label': field_component_label,
+        'coordinate_frame': 'physical_xyz',
         'axis_label': axis_label,
         'slope_mTmA': float(slope_mTmA),
         'intercept_mT_per_A': float(intercept),
@@ -244,6 +253,7 @@ def print_metrics_summary(metrics: Dict[str, Any]) -> None:
     print("  METRICS")
     print("-" * 70)
     print(f"  Gradient axis          : {label}")
+    print(f"  B0 / field component   : {metrics['b0_direction']} / {metrics['field_component_label']}")
     print(f"  Slope (realized coil)  : {metrics['slope_mTmA']:.4f}  mT/(m.A)")
     print(f"  RMSE of residuals      : {metrics['rmse_mTA']:.4f}  mT/A")
     print(f"  RMSE / coord range     : {metrics['rmse_gradient_mTmA']:.4f}  mT/(m.A)")

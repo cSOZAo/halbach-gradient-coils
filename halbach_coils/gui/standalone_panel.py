@@ -23,6 +23,7 @@ from coilgen.config import (
 from coilgen.paths import infer_gradient_axis
 from .runner import WorkerRunner
 from .units import mm_to_m
+from .advanced_controls import AdvancedControls
 
 
 class StandalonePanel(ttk.Frame):
@@ -113,6 +114,9 @@ class StandalonePanel(ttk.Frame):
 
         self._refresh()
 
+        self.coilgen_advanced = AdvancedControls(self, root=self.root)
+        self.coilgen_advanced.pack(fill='x', padx=8, pady=4)
+
         # Run + log
         bar = ttk.Frame(self)
         bar.pack(fill='x', padx=8, pady=4)
@@ -166,7 +170,8 @@ class StandalonePanel(ttk.Frame):
         if inferred_axis is not None:
             self.axis_var.set(inferred_axis)
         try:
-            cfg = Config(gradient_axis=self.axis_var.get(), show_plots=False)
+            cfg = Config(gradient_axis=self.axis_var.get(),
+                         b0_direction=self.root.b0_var.get(), show_plots=False)
             cfg.tikhonov_factor = float(self.tikhonov_var.get())
             cfg.num_levels = int(self.levels_var.get())
             cfg.cylinder.radius = mm_to_m(self.radius_var.get())
@@ -180,6 +185,7 @@ class StandalonePanel(ttk.Frame):
             cfg.fasthenry.material = self.material_var.get()
             cfg.fasthenry.specific_conductivity = resistivity
             cfg.output_dir = out_dir
+            self.coilgen_advanced.apply_to(cfg)
             if action == 'shell':
                 label = self.shell_pair_var.get().strip()
                 pair = self._shell_pair_by_label.get(label)
@@ -195,7 +201,7 @@ class StandalonePanel(ttk.Frame):
             if action == 'wire':
                 from coilgen.gradient import run_gradient
                 sol, metrics, overlap = run_gradient(cfg, output_dir=out_dir)
-                return out_dir, overlap
+                return metrics.get('field_plots'), overlap
             elif action == 'leads':
                 from coilgen.leads import run_leads
                 if not input_stl or not os.path.isfile(input_stl):
@@ -216,6 +222,9 @@ class StandalonePanel(ttk.Frame):
                     "Standalone", self.root.tr("Failed: {error}", error=err))
             else:
                 payload, overlap = result
+                if action == 'wire' and payload:
+                    self.root.show_field_plots(payload)
+                    payload = out_dir
                 msg = self.root.tr("Done.\n{payload}", payload=payload)
                 if overlap is not None and overlap.n_collisions > 0:
                     msg += self.root.tr(
@@ -227,3 +236,4 @@ class StandalonePanel(ttk.Frame):
 
     def retranslate(self):
         """Static widget text is refreshed by the application localizer."""
+        self.coilgen_advanced.retranslate()

@@ -9,6 +9,7 @@ import logging
 from .constants import *
 from .data_structures import CoilPart, WirePart, TargetField
 from .smooth_track_by_folding import smooth_track_by_folding
+from .field_component import project_field
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ def process_raw_loops(coil_parts: List[CoilPart], input_args, target_field: Targ
             p_contour.v, p_contour.uv = coil_part.coil_mesh.uv_to_xyz(p_contour.uv, coil_part.coil_mesh.uv)
 
     # Evaluate loop significance and remove loops that do not contribute enough to the target field
-    coil_parts = evaluate_loop_significance(coil_parts, target_field)
+    coil_parts = evaluate_loop_significance(coil_parts, target_field, input_args)
     for coil_part in coil_parts:
         loops_to_delete = (
             (coil_part.loop_significance < input_args.min_loop_significance)
@@ -84,7 +85,7 @@ def process_raw_loops(coil_parts: List[CoilPart], input_args, target_field: Targ
     return coil_parts
 
 
-def evaluate_loop_significance(coil_parts: List[CoilPart], target_field: TargetField):
+def evaluate_loop_significance(coil_parts: List[CoilPart], target_field: TargetField, input_args=None):
     """
     Calculate the relative errors between the different input and output fields and evaluate loop significance.
 
@@ -118,8 +119,8 @@ def evaluate_loop_significance(coil_parts: List[CoilPart], target_field: TargetF
             combined_loop_field += coil_part.field_by_loops[:, :, i]
 
         for i, loop in enumerate(coil_part.contour_lines):
-            loop_z_abs = np.abs(coil_part.field_by_loops[2, :, i])
-            field_z_abs = np.abs(combined_loop_field[2, :])
+            loop_z_abs = np.abs(project_field(coil_part.field_by_loops[:, :, i], input_args))
+            field_z_abs = np.abs(project_field(combined_loop_field, input_args))
             loop_significance[i] = np.max(loop_z_abs) / (np.mean(field_z_abs)) * 100
 
         coil_part.combined_loop_field = combined_loop_field

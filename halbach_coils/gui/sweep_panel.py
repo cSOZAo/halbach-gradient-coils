@@ -21,6 +21,7 @@ from coilgen import sweep as sweep_mod
 from coilgen.presets import load_config_preset
 from .runner import WorkerRunner
 from .units import mm_to_m
+from .advanced_controls import AdvancedControls
 
 
 class SweepPanel(ttk.Frame):
@@ -91,6 +92,9 @@ class SweepPanel(ttk.Frame):
         ttk.Checkbutton(form, text="Fine adjustment", variable=self.fine_var).grid(row=5, column=2, columnspan=2, sticky='w')
 
         self._fill_defaults()
+
+        self.coilgen_advanced = AdvancedControls(self, root=self.root)
+        self.coilgen_advanced.pack(fill='x', padx=8, pady=4)
 
         bar = ttk.Frame(self)
         bar.pack(fill='x', padx=8, pady=4)
@@ -212,6 +216,7 @@ class SweepPanel(ttk.Frame):
             return
         try:
             cfg = Config(gradient_axis=self.axis_var.get(),
+                         b0_direction=self.root.b0_var.get(),
                          num_levels=int(self.levels_var.get()),
                          show_plots=False, overlap_warn=False)
             cfg.cylinder.radius = mm_to_m(self.radius_var.get())
@@ -225,6 +230,7 @@ class SweepPanel(ttk.Frame):
             cfg.fasthenry.material = self.material_var.get()
             cfg.fasthenry.specific_conductivity = resistivity
             cfg.sweep.fine = self.fine_var.get()
+            self.coilgen_advanced.apply_to(cfg)
             tk_min = float(self.tk_min_var.get())
             tk_max = float(self.tk_max_var.get())
             n_coarse = int(self.n_coarse_var.get())
@@ -270,5 +276,6 @@ class SweepPanel(ttk.Frame):
         self.runner.run(_target, on_done=_on_done)
 
     def retranslate(self):
+        self.coilgen_advanced.retranslate()
         for column, source in self._column_labels.items():
             self.tree.heading(column, text=self.root.tr(source))

@@ -173,9 +173,9 @@ def parse_input(parse_cli=True):
     parser.add_argument('--iteration_num_mesh_refinement', type=int, default=0,
                         help="Number of refinement iterations of the mesh together with the stream function")
 
-    # Add the direction (vector) along which the interconnections will be aligned
+    # Physical field component optimized/evaluated, also used for cut alignment.
     parser.add_argument('--b_0_direction', nargs='+', type=float, default=[0, 0, 1],
-                        help="Direction (vector) along which the interconnections will be aligned")
+                        help="Physical B0 direction: optimize B dot B0_hat and align interconnections")
 
     # Add the directory of the .stl geometry files
     parser.add_argument('--geometry_source_path', type=str, default='Geometry_Data',

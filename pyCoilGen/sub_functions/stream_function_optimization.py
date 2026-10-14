@@ -10,6 +10,7 @@ import logging
 # Local imports
 from .data_structures import DataStructure, CoilPart
 from .constants import get_level, DEBUG_NONE, DEBUG_VERBOSE
+from .field_component import project_field
 from pyCoilGen.helpers.common import blkdiag
 
 log = logging.getLogger(__name__)
@@ -82,9 +83,9 @@ def stream_function_optimization(coil_parts: List[CoilPart], target_field, input
         log.debug(" - combined_mesh.bounding_box: %s", combined_mesh.bounding_box)
     set_zero_flag = False  # Flag to force the potential on the boundary nodes to zero
 
-    # Reduce target field only to z component
-    sensitivity_matrix_single = sensitivity_matrix[2]  # 3,257,528
-    target_field_single = target_field.b[2]  # 3,3023
+    # Optimize the signed physical component along B0; keep all vector fields.
+    sensitivity_matrix_single = project_field(sensitivity_matrix, input_args)
+    target_field_single = project_field(target_field.b, input_args)
 
     # Reduce the Resistance matrix for boundary nodes
     reduced_res_matrix, _, _ = reduce_matrices_for_boundary_nodes(

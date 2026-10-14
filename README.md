@@ -64,17 +64,32 @@ Simulation outputs are written under `halbach_coils/resultados/`. They are delib
 
 ## Coordinate system: read before changing physics
 
-The scanner's static field `B0` is parallel to physical `+Y`, transverse to the bore. The relevant gradient-field component is therefore also parallel to physical `Y`.
+Select `B0` from the top menu: `+X`, `-X`, `+Y`, `-Y`, `+Z`, or `-Z`.
+The default is `+Y`. The optimized field is the signed component `B · B0_hat`;
+`Gx`, `Gy`, and `Gz` are its derivatives along physical X, Y, and Z.
+The bore points along physical `+X`. The ROI, wire STL, field plots, and 3D
+preview use this same frame. Changing B0 does not rotate the cylinder or ROI.
 
-`pyCoilGen` optimises its internal `Bz` component. To align this internal convention with the scanner, the cylindrical mesh is rotated by `R_y(pi/2)`. `Config.internal_axis` performs the physical-to-internal mapping:
+This corrects the previous axis permutation, which labeled the field as Y
+while the engine optimized Bz. New and old designs can therefore differ even
+when their names match. See [the frame contract](docs/B0_FRAME.md).
 
-| Physical gradient axis | pyCoilGen internal axis |
-| --- | --- |
-| `x` | `y` |
-| `y` | `z` |
-| `z` | `x` |
+## Field results and advanced parameters
 
-When modifying geometry, target fields, or field metrics, document which frame each vector uses. Mixing scanner coordinates and pyCoilGen coordinates is the most likely source of physically plausible but incorrect results.
+Completed gradient designs save three PNG plots and a `*_field_data.npz` file:
+objective versus generated field at 1 A, linearity with residuals, and spatial
+field/error samples in the ROI. Pipeline and wire runs open the interactive
+viewer automatically. Use **Results > Open field plots...** to reopen a result;
+its saved B0 direction is independent of the current menu selection.
+These fields describe the CoilGen wire before the separate lead stage.
+
+**Advanced CoilGen parameters > Show more parameters** exposes mesh and ROI
+sampling, contour and connection controls, integration, and optimizer settings.
+Hover over a label or value for its meaning, units, and effects, in the selected
+language. Expanding the Pipeline controls shows a reduced mesh/ROI preview;
+the numerical summary gives the full sample counts. Changes to the field or
+winding require running a new design. Hiding the controls preserves their values,
+and JSON presets save B0 and advanced settings together.
 
 ## Requirements
 

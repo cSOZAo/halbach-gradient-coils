@@ -10,6 +10,7 @@ import logging
 from pyCoilGen.helpers.common import find_file
 from .data_structures import TargetField
 from .constants import *
+from .field_component import field_direction, project_field
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ def define_target_field(coil_parts, target_mesh, secondary_target_mesh, input_ar
                 if loaded_field.shape[0] != target_field_out.coords.shape[1]:
                     raise ValueError("Target field '%s' length (%s) does not match 'coords' shape (%s)",
                                      target_field_def, loaded_field.shape, target_field_out.coords.shape)
-                target_field_out.b = np.vstack((np.zeros_like(loaded_field), np.zeros_like(loaded_field), loaded_field))
+                target_field_out.b = field_direction(input_args)[:, None] * loaded_field
             else:
                 if loaded_field.shape != target_field_out.coords.shape:
                     raise ValueError("Target field '%s' shape (%s) does not match 'coords' shape (%s)",
@@ -147,8 +148,10 @@ def define_target_field(coil_parts, target_mesh, secondary_target_mesh, input_ar
 
         # Define the target field shape
         def field_func(x, y, z): return eval(input_args.field_shape_function)
-        target_field = np.zeros_like(target_points)
-        target_field[2, :] = field_func(target_points[0, :], target_points[1, :], target_points[2, :])
+        scalar_field = np.broadcast_to(field_func(
+            target_points[0, :], target_points[1, :], target_points[2, :]),
+            (target_points.shape[1],))
+        target_field = field_direction(input_args)[:, None] * scalar_field
 
         # Add points where the magnetic field should be suppressed (=>0)
         if secondary_target_mesh is not None:
@@ -161,11 +164,12 @@ def define_target_field(coil_parts, target_mesh, secondary_target_mesh, input_ar
             is_suppressed_point = np.zeros(target_points.shape[1], dtype=bool)
 
         # Scale the fields to a targeted strength
-        max_field_point_ind = np.argmax(target_field[2, :])
-        min_field_point_ind = np.argmin(target_field[2, :])
+        target_component = project_field(target_field, input_args)
+        max_field_point_ind = np.argmax(target_component)
+        min_field_point_ind = np.argmin(target_component)
         max_target_distance = np.linalg.norm(
             target_points[:, max_field_point_ind] - target_points[:, min_field_point_ind])
-        max_field_difference = np.max(target_field[2, :]) - np.min(target_field[2, :])
+        max_field_difference = np.max(target_component) - np.min(target_component)
 
         if abs(max_field_difference) > 10**(-10):
             target_field = target_field / (max_field_difference / max_target_distance) * \

@@ -115,6 +115,8 @@ def _write_txt(path: str, cfg: Config, rows: List[dict],
                best_slope: dict, best_error: dict) -> None:
     with open(path, 'w', encoding='utf-8') as fh:
         fh.write(f"Resumen Barrido Tikhonov - EJE {cfg.axis_label}\n")
+        fh.write(f"B0={cfg.b0_direction}; componente={cfg.field_component_label}; "
+                 "coordenadas=fisicas_XYZ\n")
         fh.write(f"Construccion: radio_externo={cfg.cylinder.radius}m, "
                  f"largo={cfg.cylinder.height}m, niveles={cfg.num_levels}\n")
         fh.write("-" * 70 + "\n")
@@ -282,6 +284,8 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Tikhonov regularization sweep.")
     parser.add_argument('--axis', default='z', choices=('x', 'y', 'z'))
+    parser.add_argument('--b0', default='+y', choices=('+x', '-x', '+y', '-y', '+z', '-z'),
+                        help='Physical B0 direction; use --b0=-y for a negative direction')
     parser.add_argument('--tikhonov-min', type=float, default=None)
     parser.add_argument('--tikhonov-max', type=float, default=None)
     parser.add_argument('--n-coarse', type=int, default=None)
@@ -291,7 +295,7 @@ def main():
     parser.add_argument('--height', type=float, default=0.430)
     args = parser.parse_args()
 
-    cfg = Config(gradient_axis=args.axis, num_levels=args.levels,
+    cfg = Config(gradient_axis=args.axis, b0_direction=args.b0, num_levels=args.levels,
                  show_plots=False, overlap_warn=False)
     cfg.cylinder.height = args.height
     if args.radius is not None:

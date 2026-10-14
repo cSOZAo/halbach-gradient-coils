@@ -37,6 +37,7 @@ from coilgen.presets import (
 )
 from .runner import WorkerRunner
 from .units import mm_to_m
+from .advanced_controls import AdvancedControls
 
 
 class _AspectFrame(ttk.Frame):
@@ -319,6 +320,10 @@ class PipelinePanel(ttk.Frame):
                   width=6).grid(row=0, column=5, sticky='w')
         self._toggle_advanced()
 
+        self.coilgen_advanced = AdvancedControls(
+            left, root=self.root, on_change=self._redraw_previews)
+        self.coilgen_advanced.pack(fill='x', pady=4, padx=(0, 2))
+
         # Run bar
         bar = ttk.Frame(left)
         bar.pack(fill='x', pady=(4, 2), padx=(0, 2))
@@ -359,7 +364,7 @@ class PipelinePanel(ttk.Frame):
         for var in (self.radius_var, self.height_var, self.cw_var, self.a_var,
                     self.b_var, self.margin_var, self.layer_gap_var,
                     self.roi_var, self.roi_rx_var, self.roi_ry_var,
-                    self.roi_rz_var):
+                    self.roi_rz_var, self.axis_var):
             var.trace_add('write', lambda *_: self._redraw_previews())
         self._redraw_previews()
 
@@ -462,6 +467,8 @@ class PipelinePanel(ttk.Frame):
     def apply_config(self, cfg: Config) -> None:
         """Populate Pipeline controls from a preset or sweep configuration."""
         self.axis_var.set(cfg.gradient_axis)
+        self.root.b0_var.set(cfg.b0_direction)
+        self.coilgen_advanced.load_config(cfg)
         self.tikhonov_var.set(f'{cfg.tikhonov_factor:g}')
         self.levels_var.set(str(cfg.num_levels))
         self.radius_var.set(self._mm_text(cfg.cylinder.radius))
@@ -617,7 +624,8 @@ class PipelinePanel(ttk.Frame):
             self._redraw_previews()
 
     def _preview_cfg(self) -> Config:
-        cfg = Config(gradient_axis=self.axis_var.get(), show_plots=False)
+        cfg = Config(gradient_axis=self.axis_var.get(),
+                     b0_direction=self.root.b0_var.get(), show_plots=False)
         self._apply_wire_geometry(cfg)
         cfg.wire.cross_section_n = int(self.n_var.get())
         self._apply_material(cfg)
@@ -641,6 +649,7 @@ class PipelinePanel(ttk.Frame):
         else:
             cfg.cylinder.radius = mm_to_m(self.radius_var.get())
             cfg.cylinder.height = mm_to_m(self.height_var.get())
+        self.coilgen_advanced.apply_to(cfg)
         return cfg
 
     def _redraw_previews(self):
@@ -664,8 +673,11 @@ class PipelinePanel(ttk.Frame):
         holder = _AspectFrame(parent, aspect=1.0)
         holder.pack(fill='both', expand=True, padx=2, pady=2)
         self.geo3d_fig = Figure(figsize=(4.0, 4.0), dpi=100, facecolor='white')
-        self.geo3d_fig.subplots_adjust(left=0.02, right=0.98, bottom=0.02, top=0.90)
+        self.geo3d_fig.subplots_adjust(left=0.03, right=0.93, bottom=0.12, top=0.88)
         self.geo3d_ax = self.geo3d_fig.add_subplot(111, projection='3d')
+        self.geo3d_ax.view_init(elev=22, azim=-55)
+        self.geo3d_caption = self.geo3d_fig.text(
+            0.03, 0.025, '', fontsize=7, color='#700076')
         self.geo3d_mpl_canvas = FigureCanvasTkAgg(self.geo3d_fig, master=holder.inner)
         self.geo3d_mpl_canvas.get_tk_widget().pack(fill='both', expand=True)
         self.geo3d_alert_lbl = ttk.Label(
@@ -681,6 +693,7 @@ class PipelinePanel(ttk.Frame):
     def _geo3d_show_message(self, text: str, color: str = '#aa0000'):
         ax = self.geo3d_ax
         ax.clear()
+        self.geo3d_caption.set_text('')
         ax.set_axis_off()
         ax.text2D(0.5, 0.5, text, ha='center', va='center', color=color,
                   fontsize=10, transform=ax.transAxes)
@@ -705,26 +718,26 @@ class PipelinePanel(ttk.Frame):
         """Return human-readable reasons why the ROI is outside the bore.
 
         The ROI must lie inside the hollow bore (radius ``r_inner``,
-        |z| <= ``half_h``). An axis-aligned ellipsoid centered at the origin
-        fits iff max(Rx, Ry) <= R_int and Rz <= H/2.
+        |x| <= ``half_h``). An axis-aligned ellipsoid centered at the origin
+        fits iff max(Ry, Rz) <= R_int and Rx <= H/2.
         """
         reasons = []
-        rho_max = max(rx, ry)
+        rho_max = max(ry, rz)
         if rho_max > r_inner + 1e-12:
             reasons.append(
-                f"ROI radial (max Rx/Ry={rho_max*1000:.1f} mm) > "
+                f"ROI radial (max Ry/Rz={rho_max*1000:.1f} mm) > "
                 f"R_int={r_inner*1000:.1f} mm")
-        if rz > half_h + 1e-12:
+        if rx > half_h + 1e-12:
             reasons.append(
-                f"ROI axial (Rz={rz*1000:.1f} mm) > "
+                f"ROI axial (Rx={rx*1000:.1f} mm) > "
                 f"H/2={half_h*1000:.1f} mm")
         return reasons
 
     def _redraw_geo3d_preview(self):
         """3D hollow cylinder (R_int / R_ext / height) + ROI ellipsoid (Rx, Ry, Rz).
 
-        Physical frame: bore along +Z, ROI along X/Y/Z = Rx/Ry/Rz.
-        Display remap plots (X, Z, Y) so matplotlib's vertical axis is Y.
+        Physical frame shared with CoilGen and exported wire: bore along +X.
+        The ROI semiaxes and B0 are shown in these physical X/Y/Z coordinates.
         """
         try:
             cfg = self._preview_cfg()
@@ -743,6 +756,7 @@ class PipelinePanel(ttk.Frame):
             return
 
         ax = self.geo3d_ax
+        elev, azim = ax.elev, ax.azim
         ax.clear()
 
         half_h = 0.5 * height
@@ -754,21 +768,21 @@ class PipelinePanel(ttk.Frame):
         half_h_mm = half_h * scale
         rx_mm, ry_mm, rz_mm = rx * scale, ry * scale, rz * scale
 
-        n_th = 48
-        n_z = 12
+        refinement = 2 ** cfg.advanced.iteration_num_mesh_refinement
+        n_th = min(cfg.cylinder.n_circ * refinement + 1, 81)
+        n_z = min(cfg.cylinder.n_long * refinement + 1, 31)
         theta = np.linspace(0.0, 2.0 * math.pi, n_th)
         zs = np.linspace(-half_h_mm, half_h_mm, n_z)
         Theta, Z = np.meshgrid(theta, zs)
 
-        # Outer / inner cylindrical walls (physical axis along +Z).
-        # Display as (X, Z, Y) so Y is the vertical screen axis.
+        # Cylinder coordinates: axial X, radial Y/Z, exactly as the wire STL.
         Xo = r_outer_mm * np.cos(Theta)
         Yo = r_outer_mm * np.sin(Theta)
         Xi = r_inner_mm * np.cos(Theta)
         Yi = r_inner_mm * np.sin(Theta)
-        ax.plot_surface(Xo, Z, Yo, color='#9aa3ad', alpha=0.28,
+        ax.plot_surface(Z, Xo, Yo, color='#9aa3ad', alpha=0.28,
                         linewidth=0, antialiased=True, shade=True)
-        ax.plot_surface(Xi, Z, Yi, color='#c5cdd6', alpha=0.22,
+        ax.plot_surface(Z, Xi, Yi, color='#c5cdd6', alpha=0.22,
                         linewidth=0, antialiased=True, shade=True)
 
         # Annular end caps at physical z = ±height/2.
@@ -777,7 +791,7 @@ class PipelinePanel(ttk.Frame):
         Xc = R_c * np.cos(Theta_c)
         Yc = R_c * np.sin(Theta_c)
         for z_cap in (-half_h_mm, half_h_mm):
-            ax.plot_surface(Xc, np.full_like(Xc, z_cap), Yc,
+            ax.plot_surface(np.full_like(Xc, z_cap), Xc, Yc,
                             color='#7a8490', alpha=0.35, linewidth=0,
                             antialiased=True, shade=True)
 
@@ -787,7 +801,7 @@ class PipelinePanel(ttk.Frame):
             x_ring = r * np.cos(th)
             y_ring = r * np.sin(th)
             for z_ring in (-half_h_mm, half_h_mm):
-                ax.plot(x_ring, np.full_like(th, z_ring), y_ring,
+                ax.plot(np.full_like(th, z_ring), x_ring, y_ring,
                         color='#333333', lw=0.9, alpha=0.85)
 
         # ROI ellipsoid: blue if inside bore, red if colliding / outside.
@@ -797,16 +811,48 @@ class PipelinePanel(ttk.Frame):
         ye = ry_mm * np.outer(np.sin(u), np.sin(v))
         ze = rz_mm * np.outer(np.ones_like(u), np.cos(v))
         roi_color = '#e53935' if collision else '#2f80ed'
-        ax.plot_surface(xe, ze, ye, color=roi_color, alpha=0.50,
+        ax.plot_surface(xe, ye, ze, color=roi_color, alpha=0.36,
                         linewidth=0, antialiased=True, shade=True)
+
+        if self.coilgen_advanced.expanded.get():
+            # Geometric preview only: no field is claimed before optimization.
+            mesh_x = Z * cfg.cylinder.mesh_length_factor
+            design_r = cfg.cylinder_design_radius * scale
+            ax.plot_wireframe(mesh_x, design_r * np.cos(Theta),
+                              design_r * np.sin(Theta), color='#59636e',
+                              alpha=0.35, linewidth=0.4, rstride=1, cstride=1)
+            ra = np.linspace(0, 1, min(cfg.target.resol_radial, 8))
+            tt = np.linspace(0, math.pi, min(cfg.target.resol_angular, 14))
+            pp = np.linspace(-math.pi, math.pi, min(cfg.target.resol_angular, 14))
+            R, T, P = np.meshgrid(ra, tt, pp, indexing='ij')
+            ax.scatter((rx_mm * R * np.sin(T) * np.cos(P)).ravel(),
+                       (ry_mm * R * np.sin(T) * np.sin(P)).ravel(),
+                       (rz_mm * R * np.cos(T)).ravel(), s=1, alpha=0.18,
+                       color='#1565c0', depthshade=False)
 
         lim = max(half_h_mm, r_outer_mm, rx_mm, ry_mm, rz_mm) * 1.15
         self._set_axes_equal_3d(ax, lim)
         ax.set_xlabel('X [mm]', fontsize=7, labelpad=-2)
-        ax.set_ylabel('Z [mm]', fontsize=7, labelpad=-2)
-        ax.set_zlabel('Y [mm]', fontsize=7, labelpad=-2)
+        ax.set_ylabel('Y [mm]', fontsize=7, labelpad=-2)
+        ax.set_zlabel('Z [mm]', fontsize=7, labelpad=-2)
         ax.tick_params(labelsize=6, pad=-2)
-        ax.view_init(elev=18, azim=-60)
+        ax.view_init(elev=elev, azim=azim)
+        for index, color in enumerate(('#d32f2f', '#2e7d32', '#1565c0')):
+            vector = np.eye(3)[index] * lim * 0.85
+            ax.quiver(0, 0, 0, *vector, color=color, linewidth=1.4,
+                      arrow_length_ratio=0.10)
+            ax.text(*(vector * 1.10), '+' + 'XYZ'[index], color=color,
+                    fontsize=8, fontweight='bold')
+        b0_arrow = cfg.b0_vector * lim * 0.66
+        ax.quiver(0, 0, 0, *b0_arrow, color='#a000a8', linewidth=3,
+                  arrow_length_ratio=0.17)
+        ax.text(*(b0_arrow * 1.12), f"B₀ {cfg.b0_direction.upper()}",
+                color='#a000a8', fontsize=9, fontweight='bold')
+        self.geo3d_caption.set_text(
+            f"B₀ {cfg.b0_direction.upper()} · {cfg.field_component_label} · "
+            f"G{cfg.gradient_axis} = ∂(B·b₀)/∂{cfg.gradient_axis.upper()}\n"
+            + (self.root.tr("Mesh and ROI preview use reduced samples.")
+               if self.coilgen_advanced.expanded.get() else ''))
 
         title = (
             f"Rint={r_inner*1000:.1f}  Rext={r_outer*1000:.1f}  H={height*1000:.0f} mm\n"
@@ -1158,6 +1204,7 @@ class PipelinePanel(ttk.Frame):
     def _build_cfg(self) -> Config:
         cfg = Config(
             gradient_axis=self.axis_var.get(),
+            b0_direction=self.root.b0_var.get(),
             tikhonov_factor=float(self.tikhonov_var.get()),
             num_levels=int(self.levels_var.get()),
             show_plots=False,
@@ -1222,6 +1269,7 @@ class PipelinePanel(ttk.Frame):
                 cfg.leads.junction_rigid_steps = int(self.junction_rigid_steps_var.get())
             except ValueError:
                 pass
+        self.coilgen_advanced.apply_to(cfg)
         return cfg
 
     def _ask_user(self, question: str) -> bool:
@@ -1274,6 +1322,9 @@ class PipelinePanel(ttk.Frame):
 
         def _on_done(result, err):
             self._set_running(False)
+            plots = getattr(result, 'field_plots', None)
+            if plots:
+                self.root.show_field_plots(plots)
             if err is not None:
                 messagebox.showerror(
                     "Pipeline", self.root.tr("Failed: {error}", error=err))
@@ -1293,6 +1344,7 @@ class PipelinePanel(ttk.Frame):
 
     def retranslate(self):
         """Refresh dynamic preview text after a language change."""
+        self.coilgen_advanced.retranslate()
         self._update_measured_dims_label()
         if hasattr(self, 'geo3d_ax'):
             self._redraw_previews()

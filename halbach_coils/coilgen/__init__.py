@@ -7,10 +7,9 @@ duplicates with a single source of truth driven by :class:`coilgen.config.Config
 
 Coordinate frame
 ----------------
-The scanner B0 is parallel to +Y (transverse to the bore). pyCoilGen optimizes
-Bz internally, so the cylinder mesh is rotated R_y(pi/2) to align the optimized
-component with the physical gradient axis. ``Config.internal_axis`` maps a
-physical gradient axis (x/y/z) to the pyCoilGen internal axis (y/z/x).
+The scanner B0 defaults to +Y (transverse to the +X bore) and is selectable.
+Coordinates, field vectors, gradients and STLs share the physical XYZ frame.
+Gx/Gy/Gz are derivatives of the signed B0 component along physical X/Y/Z.
 """
 
 from __future__ import annotations
