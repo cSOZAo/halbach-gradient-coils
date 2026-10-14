@@ -43,6 +43,7 @@ class PipelineResult:
     output_dir: str
     discarded: bool = False
     field_plots: dict | None = None
+    metrics_path: str | None = None
 
 
 def _coil_only_wire_paths(folder: str) -> list[str]:
@@ -50,7 +51,7 @@ def _coil_only_wire_paths(folder: str) -> list[str]:
     paths: set[str] = set()
     patterns = ('Gradient_*_wire_0.stl', 'Gradient_*_wire_0_?.stl')
     for pattern in patterns:
-        for wire in glob.glob(os.path.join(folder, pattern)):
+        for wire in glob.glob(os.path.join(folder, pattern)) + glob.glob(os.path.join(folder, 'Bobina', pattern)):
             if not _paths._is_derived_wire_stl(wire):
                 paths.add(wire)
     return sorted(paths)
@@ -121,7 +122,7 @@ def _ensure_wire_exists(cfg: Config, run_dir: str, run_gradient: bool) -> str:
         f"matching an existing run.")
 
 
-def run_pipeline(cfg: Config, should_stop=None, ask_user=None,
+def _run_pipeline(cfg: Config, should_stop=None, ask_user=None,
                  question_language: str = "es") -> PipelineResult:
     """Run the configured pipeline steps and return its outcome.
 
@@ -215,6 +216,25 @@ def run_pipeline(cfg: Config, should_stop=None, ask_user=None,
     print("  Pipeline complete.")
     print("=" * 70)
     return PipelineResult(run_dir, field_plots=field_plots)
+
+
+def run_pipeline(cfg: Config, should_stop=None, ask_user=None,
+                 question_language: str = "es") -> PipelineResult:
+    """Run the stages, then arrange outputs and expose the final metrics."""
+    from dataclasses import replace
+    from coilgen.outputs import organize_outputs, relocate_paths, write_result_summary
+
+    try:
+        result = _run_pipeline(cfg, should_stop, ask_user, question_language)
+    except Exception as exc:
+        if cfg.output_dir and os.path.isdir(cfg.output_dir):
+            organize_outputs(cfg.output_dir)
+            write_result_summary(cfg.output_dir, error=exc)
+        raise
+    moves = organize_outputs(result.output_dir)
+    metrics_path = write_result_summary(result.output_dir)
+    return replace(result, field_plots=relocate_paths(result.field_plots, moves),
+                   metrics_path=metrics_path or None)
 
 
 def main():

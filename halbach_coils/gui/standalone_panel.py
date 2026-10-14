@@ -208,13 +208,18 @@ class StandalonePanel(ttk.Frame):
                     "Standalone", self.root.tr("Failed: {error}", error=err))
             else:
                 payload, overlap = result
+                electrical = ''
                 if action == 'wire' and payload:
                     self.root.show_field_plots(payload)
                     payload = out_dir
                 elif action == 'leads' and isinstance(payload, dict):
+                    from .field_viewer import electrical_result_text
+                    electrical = electrical_result_text(payload.get('metrics_path'), self.root.tr)
                     self.root.show_field_plots(payload['field_plots'])
                     payload = '\n'.join(payload['paths'])
                 msg = self.root.tr("Done.\n{payload}", payload=payload)
+                if electrical:
+                    msg += '\n\n' + electrical
                 if overlap is not None and overlap.n_collisions > 0:
                     msg += self.root.tr(
                         "\n\nAreas with 3 or more cables: {count}. Maximum at one location: {maximum} cables.",

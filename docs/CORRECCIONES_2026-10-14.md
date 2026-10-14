@@ -1,5 +1,9 @@
 # Correcciones y validación — 14 de octubre de 2026
 
+Actualización posterior: la extracción COM real de FastHenry ya fue verificada.
+Véase [la organización de salidas y los resultados](SALIDAS_Y_FASTHENRY.md), que
+actualiza ese pendiente y documenta el ajuste de flechas al hacer zoom.
+
 La carpeta de trabajo principal es `C:\Proyectos\GradientDesign`. La iteración
 anterior permanece en `C:\Proyectos\GradientDesign-Overengineered` y los respaldos
 en `C:\Proyectos\GradientDesign-Backups`.

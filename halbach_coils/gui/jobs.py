@@ -72,11 +72,14 @@ def dispatch_job(kind, cfg, extra, *, ask_user, on_progress):
         return run_pipeline(cfg, ask_user=ask_user,
                             question_language=extra.get('question_language', 'es'))
     if kind == 'standalone':
+        from halbach_coils.coilgen.outputs import organize_outputs, relocate_paths, write_result_summary
         action = extra.get('action', 'wire')
         if action == 'wire':
             from halbach_coils.coilgen.gradient import run_gradient
             _solution, metrics, overlap = run_gradient(cfg, output_dir=cfg.output_dir)
-            return metrics.get('field_plots'), overlap
+            moves = organize_outputs(cfg.output_dir)
+            write_result_summary(cfg.output_dir)
+            return relocate_paths(metrics.get('field_plots'), moves), overlap
         input_stl = extra.get('input_stl', '')
         if not input_stl or not os.path.isfile(input_stl):
             raise FileNotFoundError(f'Input STL does not exist: {input_stl}')
@@ -87,13 +90,18 @@ def dispatch_job(kind, cfg, extra, *, ask_user, on_progress):
             validate_design_state(input_stl, cfg)
             paths = run_leads(cfg, input_stl=input_stl)
             final = evaluate_final_conductor(cfg, input_stl, paths[0], cfg.output_dir)
-            return {'paths': paths, 'field_plots': final['field_plots'],
-                    'metrics_path': final['metrics_path']}, None
+            moves = organize_outputs(cfg.output_dir)
+            stem = os.path.basename(input_stl).rsplit('_wire_0', 1)[0]
+            write_result_summary(cfg.output_dir, stem=stem)
+            return relocate_paths({'paths': paths, 'field_plots': final['field_plots'],
+                                   'metrics_path': final['metrics_path']}, moves), None
         if action == 'shell':
             from halbach_coils.coilgen.shell import run_shell
             _output, paths = run_shell(cfg, wire_with_leads_stl=input_stl,
                                        output_dir=cfg.output_dir)
-            return paths, None
+            moves = organize_outputs(cfg.output_dir)
+            write_result_summary(cfg.output_dir)
+            return relocate_paths(paths, moves), None
         raise ValueError(f'Unknown standalone action: {action}')
     if kind == 'sweep':
         from halbach_coils.coilgen.sweep import run_tikhonov_sweep

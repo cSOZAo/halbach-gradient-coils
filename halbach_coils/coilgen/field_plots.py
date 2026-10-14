@@ -211,7 +211,7 @@ def draw_field_figure(figure, data: FieldPlotData, kind: str,
         coords_mm = data.coords_m * 1000.0
         b0 = _b0_vector(data.b0_direction)
         spans = np.ptp(coords_mm, axis=1)
-        arrow_length = float(max(spans.max() * 0.25, 1.0))
+        from .plot_arrows import ViewScaledArrow
         center = coords_mm.mean(axis=1)
         for index, (values, caption, colorbar_label) in enumerate((
             (field, "Generated field", "Field parallel to B0 [mT/A]"),
@@ -222,10 +222,8 @@ def draw_field_figure(figure, data: FieldPlotData, kind: str,
             cloud = ax.scatter(*coords_mm, c=values, s=9, cmap="coolwarm",
                                norm=Normalize(-limit, limit), alpha=0.8,
                                rasterized=True)
-            ax.quiver(*center, *b0, length=arrow_length, color="#343434",
-                      arrow_length_ratio=0.25, linewidth=2)
-            arrow_tip = center + b0 * arrow_length * 1.1
-            ax.text(*arrow_tip, "B0", color="#222222")
+            ViewScaledArrow(ax, center, b0, fraction=.25, label='B0',
+                            color='#343434', linewidth=2)
             ax.set_title(text(caption), fontsize=11)
             ax.set_xlabel("X [mm]")
             ax.set_ylabel("Y [mm]")

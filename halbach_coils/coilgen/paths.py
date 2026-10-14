@@ -64,7 +64,13 @@ def standalone_design_dir(axis: str, tikhonov: float, num_levels: int) -> str:
 
 def unique_path(path: str) -> str:
     """Return *path* or ``stem(n).ext`` if *path* already exists."""
-    if not os.path.exists(path):
+    def occupied(candidate):
+        from .outputs import result_subfolder
+        group = result_subfolder(os.path.basename(candidate))
+        organized = os.path.join(os.path.dirname(candidate), group, os.path.basename(candidate)) if group else candidate
+        return os.path.exists(candidate) or os.path.exists(organized)
+
+    if not occupied(path):
         return path
     directory, basename = os.path.split(path)
     stem, ext = os.path.splitext(basename)
@@ -72,7 +78,7 @@ def unique_path(path: str) -> str:
     n = 2
     while True:
         candidate = os.path.join(directory, f'{base}({n}){ext}')
-        if not os.path.exists(candidate):
+        if not occupied(candidate):
             return candidate
         n += 1
 
@@ -101,8 +107,9 @@ def unique_stem(
 
     def _occupied(s: str) -> bool:
         return any(
-            os.path.exists(os.path.join(directory, tpl.format(stem=s)))
+            os.path.exists(os.path.join(directory, group, tpl.format(stem=s)))
             for tpl in marker_templates
+            for group in ('', 'Bobina')
         )
 
     if not _occupied(stem):
@@ -169,9 +176,14 @@ def resolve_lead_stl_paths(wire_stl: str) -> tuple[str, str, str]:
 
     base, ext = os.path.splitext(wire_stl)
     directory = os.path.dirname(wire_stl) or '.'
+    directories = [directory]
+    if os.path.basename(directory) == 'Bobina':
+        directories.extend([os.path.dirname(directory), os.path.join(os.path.dirname(directory), 'Leads')])
+    else:
+        directories.append(os.path.join(directory, 'Leads'))
 
     def _newest(pattern: str) -> str:
-        matches = glob.glob(os.path.join(directory, pattern))
+        matches = [path for folder in directories for path in glob.glob(os.path.join(folder, pattern))]
         if matches:
             return max(matches, key=os.path.getmtime)
         return ''
@@ -197,6 +209,16 @@ def resolve_wire_stl_path(
 ) -> str:
     """Wire STL from ``.active_project_stem`` or the default naming convention."""
     import glob
+
+    # Prefer new flat files while a run is in progress; completed runs are grouped.
+    organized = os.path.join(output_dir, 'Bobina')
+    if os.path.isdir(organized):
+        stem = read_active_stem(output_dir, gradient_project_stem(axis, tikhonov, num_levels))
+        for folder in (output_dir, organized):
+            for name in (wire_stl_name(stem, axis), f'{stem}_wire_0_{internal_field_axis(axis)}.stl'):
+                candidate = os.path.join(folder, name)
+                if os.path.isfile(candidate):
+                    return candidate
 
     default_stem = gradient_project_stem(axis, tikhonov, num_levels)
     stem = read_active_stem(output_dir, default_stem)
@@ -236,6 +258,10 @@ def resolve_wire_stl_path(
                 matches.append(path)
     if matches:
         return max(matches, key=os.path.getmtime)
+    if os.path.isdir(organized):
+        candidate = resolve_wire_stl_path(organized, axis, tikhonov, num_levels)
+        if os.path.isfile(candidate):
+            return candidate
     return os.path.join(output_dir, wire_stl_name(stem, axis))
 
 
@@ -246,6 +272,11 @@ def derive_align_wire_path(subtract_path: str) -> str:
     coil_only = re.sub(r'_with_leads(?:\(\d+\))?$', '', base) + ext
     if os.path.isfile(coil_only):
         return coil_only
+    if os.path.basename(os.path.dirname(subtract_path)) == 'Leads':
+        candidate = os.path.join(os.path.dirname(os.path.dirname(subtract_path)),
+                                 'Bobina', os.path.basename(coil_only))
+        if os.path.isfile(candidate):
+            return candidate
     legacy = base[:-len('_with_leads')] + ext if base.endswith('_with_leads') else base
     if os.path.isfile(legacy):
         return legacy
@@ -258,13 +289,11 @@ def unique_lead_output_paths(input_stl: str) -> tuple[str, str, str]:
     when any of the trio would overwrite an existing file.
     """
     base, ext = os.path.splitext(input_stl)
-    with_leads = unique_path(base + '_with_leads' + ext)
-    wl_base, wl_ext = os.path.splitext(with_leads)
-    coil_open = wl_base.replace('_with_leads', '_coil_open') + wl_ext
-    leads_only = wl_base.replace('_with_leads', '_leads_only') + wl_ext
-    if os.path.exists(coil_open) or os.path.exists(leads_only):
-        with_leads = unique_path(with_leads)
-        wl_base, wl_ext = os.path.splitext(with_leads)
-        coil_open = wl_base.replace('_with_leads', '_coil_open') + wl_ext
-        leads_only = wl_base.replace('_with_leads', '_leads_only') + wl_ext
-    return with_leads, coil_open, leads_only
+    number = 1
+    while True:
+        suffix = '' if number == 1 else f'({number})'
+        candidates = tuple(base + tag + suffix + ext
+                           for tag in ('_with_leads', '_coil_open', '_leads_only'))
+        if all(unique_path(path) == path for path in candidates):
+            return candidates
+        number += 1

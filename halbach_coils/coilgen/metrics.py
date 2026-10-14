@@ -161,7 +161,8 @@ def compute_metrics(solution,
     # ----- Persist metrics txt --------------------------------------------
     metrics_path = os.path.join(output_dir, f"{project_name}_metrics.txt")
     with open(metrics_path, 'w', encoding='utf-8') as fh:
-        fh.write("# pyCoilGen run metrics\n")
+        fh.write("# Preliminary CoilGen wire metrics (before terminal leads)\n")
+        fh.write("# Final conductor / FastHenry values: see Resumen.txt and Leads/*_final_metrics.json\n")
         fh.write(f"project_name              = {project_name}\n")
         fh.write(f"gradient_axis             = {gradient_axis}\n")
         fh.write(f"internal_axis             = {internal_axis}\n")
@@ -262,8 +263,7 @@ def print_metrics_summary(metrics: Dict[str, Any]) -> None:
     print(f"  Wire length (recomputed): {metrics['total_wire_length_computed']:.4f}  m"
           f"   (per part: {[f'{x:.4f}' for x in metrics['wire_lengths_computed']]})")
     print(f"  Ohmic R estimate       : {_fmt(metrics['total_ohmian_resistance'])}  ohm")
-    print(f"  FastHenry R            : {_fmt(metrics['total_fasthenry_resistance'])}  ohm")
-    print(f"  FastHenry L (part sum) : {_fmt(metrics['total_fasthenry_inductance'])}  H")
+    print("  Final FastHenry R/L    : calculated after the terminal lead stage")
     print(f"  Mean rel err layout    : {_fmt(metrics['mean_rel_err_layout_pct'])} %")
     print("-" * 70)
     print(f"  Metrics written to     : {metrics['metrics_path']}")

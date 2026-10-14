@@ -249,6 +249,24 @@ and diagnostic files. Their exact contents depend on the selected steps. Keep
 the full run directory when comparing designs: the final shell alone does not
 record every parameter or diagnostic needed to reproduce the run.
 
+Completed Pipeline and Standalone runs are arranged by stage:
+
+```text
+output/
+├── Resumen.txt       # final field/electrical values, including FastHenry R/L
+├── Molde/            # manufactured shell STL(s)
+├── Leads/            # final conductor, terminals, final metrics and field data
+├── Graficos/         # final PNGs; CoilGen/ holds pre-lead plots
+├── Bobina/           # original wire and matching provenance/reference files
+└── Diagnostico/      # solver inputs, raw results and other diagnostics
+```
+
+The completion dialog and final field viewer also display FastHenry resistance
+and inductance. `Bobina/*_metrics.txt` describes the wire **before terminal
+leads** and does not contain the final solver values. Use `Resumen.txt` or
+`Leads/*_final_metrics.json` for those. File pickers and reuse also support older
+flat output directories. See [output and FastHenry verification](docs/SALIDAS_Y_FASTHENRY.md).
+
 ## Configuration and pipeline stages
 
 `halbach_coils/coilgen/config.py` is the single source of truth for geometry, conductor, target field, lead-wire, shell, and FastHenry settings. Avoid duplicating configuration values in scripts.
@@ -288,7 +306,8 @@ the analytical resistance separately from optional FastHenry R/L. If extraction
 is unavailable or fails, solver values remain empty with an explicit status.
 Windows FastHenry uses its registered COM server; its client has a timeout,
 but a hung external COM server may remain alive after cancellation. Real COM
-extraction still requires validation on the installed solver.
+extraction was verified with the installed solver and the GUI defaults; see
+[the output and solver report](docs/SALIDAS_Y_FASTHENRY.md).
 
 ## pyCoilGen integration notes
 

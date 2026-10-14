@@ -568,7 +568,7 @@ def run_shell(
 
     # Resolve the with-leads STL.
     if wire_with_leads_stl is None:
-        from .paths import resolve_wire_stl_path, resolve_lead_stl_paths
+        from .paths import resolve_wire_stl_path
         wire = resolve_wire_stl_path(
             cfg.output_dir, cfg.gradient_axis,
             cfg.tikhonov_factor, cfg.num_levels,

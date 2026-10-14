@@ -19,6 +19,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "es": {
         "pyCoilGen - MRI gradient coil design": "pyCoilGen - Diseño de bobinas de gradiente MRI",
         "Settings": "Configuración",
+        "Final conductor — FastHenry R: {resistance} Ω | L: {inductance} µH": "Conductor final — FastHenry R: {resistance} Ω | L: {inductance} µH",
+        "Final conductor — FastHenry: {status}. {reason}": "Conductor final — FastHenry: {status}. {reason}",
+        "unavailable": "no disponible",
+        "disabled": "desactivado",
+        "failed": "falló",
         "Language": "Idioma",
         "Output directory:": "Directorio de salida:",
         "Browse...": "Examinar...",

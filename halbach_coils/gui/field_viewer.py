@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from .plot_controls import enable_3d_zoom
@@ -10,6 +11,21 @@ from .plot_controls import enable_3d_zoom
 from halbach_coils.coilgen.field_plots import (
     PLOT_KINDS, PLOT_LABELS, create_field_figure, draw_field_figure, load_field_data,
 )
+
+
+def electrical_result_text(metrics_path, tr=None):
+    """Present the final solver result in the completion dialog and field viewer."""
+    tr = tr or (lambda text, **values: text.format(**values))
+    if not metrics_path or not Path(metrics_path).is_file():
+        return ''
+    result = json.loads(Path(metrics_path).read_text(encoding='utf-8'))
+    fh = result.get('fasthenry', {})
+    if fh.get('status') == 'success':
+        return tr('Final conductor — FastHenry R: {resistance} Ω | L: {inductance} µH',
+                  resistance=f"{fh['resistance_ohm']:.7g}",
+                  inductance=f"{fh['inductance_H'] * 1e6:.7g}")
+    return tr('Final conductor — FastHenry: {status}. {reason}',
+              status=tr(fh.get('status', 'unavailable')), reason=fh.get('reason', ''))
 
 
 class FieldViewer(tk.Toplevel):
@@ -37,6 +53,10 @@ class FieldViewer(tk.Toplevel):
         self.selector.bind("<<ComboboxSelected>>", self._on_selected)
         self.path_label = ttk.Label(self, text=self.data_path, padding=(10, 0))
         self.path_label.pack(fill="x")
+        self.metrics_path = str(Path(self.data_path).with_name(
+            Path(self.data_path).name.removesuffix('_field_data.npz') + '_final_metrics.json'))
+        self.metrics_label = ttk.Label(self, padding=(10, 4), wraplength=1000)
+        self.metrics_label.pack(fill='x')
 
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
@@ -58,6 +78,7 @@ class FieldViewer(tk.Toplevel):
         self.view_label.configure(text=self.tr("View:"))
         self.selector.configure(values=[self.tr(PLOT_LABELS[k]) for k in PLOT_KINDS])
         self.selector.current(PLOT_KINDS.index(self._current_kind))
+        self.metrics_label.configure(text=electrical_result_text(self.metrics_path, self.tr))
         self._draw()
 
     def _on_selected(self, _event=None):

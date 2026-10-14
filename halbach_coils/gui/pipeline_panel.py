@@ -35,6 +35,8 @@ from .runner import WorkerRunner, JobCancelled
 from .units import mm_to_m
 from .advanced_controls import AdvancedControls
 from .plot_controls import enable_3d_zoom, cancel_draw_on_destroy
+from .field_viewer import electrical_result_text
+from halbach_coils.coilgen.plot_arrows import ViewScaledArrow
 
 
 class _AspectFrame(ttk.Frame):
@@ -753,16 +755,11 @@ class PipelinePanel(ttk.Frame):
         ax.tick_params(labelsize=6, pad=-2)
         ax.view_init(elev=elev, azim=azim)
         for index, color in enumerate(('#d32f2f', '#2e7d32', '#1565c0')):
-            vector = np.eye(3)[index] * lim * 0.85
-            ax.quiver(0, 0, 0, *vector, color=color, linewidth=1.4,
-                      arrow_length_ratio=0.10)
-            ax.text(*(vector * 1.10), '+' + 'XYZ'[index], color=color,
-                    fontsize=8, fontweight='bold')
-        b0_arrow = cfg.b0_vector * lim * 0.66
-        ax.quiver(0, 0, 0, *b0_arrow, color='#a000a8', linewidth=3,
-                  arrow_length_ratio=0.17)
-        ax.text(*(b0_arrow * 1.12), f"B₀ {cfg.b0_direction.upper()}",
-                color='#a000a8', fontsize=9, fontweight='bold')
+            ViewScaledArrow(ax, [0, 0, 0], np.eye(3)[index], fraction=.425,
+                            label='+' + 'XYZ'[index], color=color)
+        ViewScaledArrow(ax, [0, 0, 0], cfg.b0_vector, fraction=.33,
+                        label=f"B₀ {cfg.b0_direction.upper()}", color='#a000a8',
+                        linewidth=2, fontsize=9, head_size=11)
         self.geo3d_caption.set_text(
             f"B₀ {cfg.b0_direction.upper()} · {cfg.field_component_label} · "
             f"G{cfg.gradient_axis} = ∂(B·b₀)/∂{cfg.gradient_axis.upper()}\n"
@@ -1229,8 +1226,12 @@ class PipelinePanel(ttk.Frame):
                 )
             else:
                 output_dir = getattr(result, 'output_dir', result)
+                message = self.root.tr("Done.\nResults in:\n{path}", path=output_dir)
+                electrical = electrical_result_text(getattr(result, 'metrics_path', None), self.root.tr)
+                if electrical:
+                    message += '\n\n' + electrical
                 messagebox.showinfo(
-                    "Pipeline", self.root.tr("Done.\nResults in:\n{path}", path=output_dir))
+                    "Pipeline", message)
 
         self.runner.run_job('pipeline', cfg,
                             extra={'question_language': question_language},

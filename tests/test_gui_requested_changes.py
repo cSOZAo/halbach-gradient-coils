@@ -10,6 +10,7 @@ from matplotlib.figure import Figure
 
 from halbach_coils.coilgen.config import Config
 from halbach_coils.gui.plot_controls import zoom_3d
+from halbach_coils.coilgen.plot_arrows import ViewScaledArrow
 
 
 def test_bore_and_all_default_terminal_directions_are_z():
@@ -39,6 +40,41 @@ def test_wheel_zoom_preserves_camera_and_other_axes():
     assert other_bounds == (other.get_xlim(), other.get_ylim(), other.get_zlim())
     zoom_3d(SimpleNamespace(inaxes=ax, canvas=canvas, step=-1, button='down'))
     np.testing.assert_allclose(before, (ax.get_xlim(), ax.get_ylim(), ax.get_zlim()))
+
+
+def test_orientation_arrow_keeps_its_screen_size_and_direction_during_zoom():
+    from mpl_toolkits.mplot3d import proj3d
+    figure = Figure()
+    canvas = FigureCanvasAgg(figure)
+    ax = figure.add_subplot(projection='3d')
+    ax.set_xlim(-100, 100)
+    ax.set_ylim(-100, 100)
+    ax.set_zlim(-100, 100)
+    arrow = ViewScaledArrow(ax, [0, 0, 0], [0, -1, 0], fraction=.33,
+                            label='B0 -Y', color='purple')
+
+    def screen_length():
+        origin, end = arrow.endpoints()
+        x, y, _ = proj3d.proj_transform(*np.column_stack((origin, end)), ax.get_proj())
+        pixels = ax.transData.transform(np.column_stack((x, y)))
+        return np.linalg.norm(pixels[1] - pixels[0])
+
+    canvas.draw()
+    initial_screen_length = screen_length()
+    initial_world_length = np.linalg.norm(arrow.endpoints()[1])
+    initial_artist_count = len(ax.get_children())
+    for _ in range(12):
+        zoom_3d(SimpleNamespace(inaxes=ax, canvas=canvas, step=1, button='up'))
+    canvas.draw()
+    assert np.isclose(screen_length(), initial_screen_length)
+    assert np.isclose(np.linalg.norm(arrow.endpoints()[1]), initial_world_length * .8**12)
+    assert arrow.endpoints()[1][1] < 0
+    assert arrow.get_mutation_scale() == 9
+    assert len(ax.get_children()) == initial_artist_count
+    for _ in range(12):
+        zoom_3d(SimpleNamespace(inaxes=ax, canvas=canvas, step=-1, button='down'))
+    canvas.draw()
+    assert np.isclose(screen_length(), initial_screen_length)
 
 
 def test_advanced_reset_is_limited_to_advanced_parameters():
