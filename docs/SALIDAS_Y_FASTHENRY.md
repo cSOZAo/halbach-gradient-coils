@@ -9,7 +9,8 @@ La presentación hacía difícil encontrar el resultado final.
 Se repitió la extracción con el servidor COM instalado, sobre la misma
 trayectoria de 3963 puntos (2683 en el solver), y se obtuvieron los mismos
 valores. Esta comprobación usa FastHenry real, no un solver simulado. La
-limitación de cancelación de un servidor COM externo bloqueado sigue vigente.
+cancelación se reforzó y verificó después mediante un proceso propio contenido
+en Windows; véase [el cierre de Gz y cancelación](CIERRE_GZ_Y_CANCELACION.md).
 
 ## Organización
 

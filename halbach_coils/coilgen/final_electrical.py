@@ -1,8 +1,8 @@
 """FastHenry on the final oriented conductor, with bounded path simplification.
 
 Inductance is partial: supply/return wiring is outside this model. Windows
-FastHenry uses COM; the client is bounded, but an unresponsive COM server
-cannot be guaranteed to stop when its client times out.
+FastHenry uses a private automation process contained in a kill-on-close job,
+so cancellation does not depend on an unresponsive COM server answering Quit.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from uuid import uuid4
 import numpy as np
 
 from .fasthenry import resolve_fasthenry_bin, fasthenry_available
+from .process_control import WindowsJob
 
 
 def simplify_current_path(path, tolerance):
@@ -75,6 +76,49 @@ def _windows_server_running(binary):
     return any(row and row[0].casefold() == name for row in csv.reader(process_list.stdout.splitlines()))
 
 
+def _wait_for_input_idle(process, timeout):
+    """MFC registers its automation factories before its message loop is idle."""
+    import ctypes
+    from ctypes import wintypes
+    wait = ctypes.WinDLL('user32', use_last_error=True).WaitForInputIdle
+    wait.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    wait.restype = wintypes.DWORD
+    if wait(int(process._handle), max(1, int(timeout * 1000))) != 0:
+        raise RuntimeError('FastHenry automation server did not finish starting in time.')
+
+
+class _OwnedWindowsServer:
+    """Contain the exact process we launch, without attaching to a user's GUI."""
+
+    def __init__(self, binary, timeout):
+        self.binary, self.timeout = binary, timeout
+        self.process = self.job = None
+
+    def __enter__(self):
+        self.process = subprocess.Popen(
+            [self.binary, '/Embedding'], stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW)
+        try:
+            self.job = WindowsJob(self.process.pid)
+            _wait_for_input_idle(self.process, min(5, self.timeout))
+            if self.process.poll() is not None:
+                raise RuntimeError('FastHenry automation server exited during startup.')
+        except BaseException:
+            self.__exit__(None, None, None)
+            raise
+        return self.process.pid
+
+    def __exit__(self, *_exc):
+        if self.job is not None:
+            self.job.close()
+            self.job = None
+        if self.process is not None:
+            if self.process.poll() is None:
+                self.process.terminate()
+            self.process.wait(timeout=2)
+
+
 def _atomic_text(filename, contents, encoding='utf-8'):
     temporary = None
     try:
@@ -121,9 +165,10 @@ def _parse_impedance(filename):
 def evaluate_final_electrical(cfg, path_N3, output_dir, tolerance=2e-5, timeout=60) -> dict:
     """Return solver status/R/L and save compact evidence for an attempted run.
 
-    subprocess cwd applies only to the owned solver client. Existing Windows
-    FastHenry instances are never intentionally reused or terminated. On a COM
-    timeout the client is stopped; the server may remain alive, and no L is used.
+    Existing Windows FastHenry instances are never reused or terminated. The
+    owned server's kernel job closes on timeout, worker cancellation or crash,
+    terminating the process even when COM calls are blocked. Failed runs never
+    publish resistance or inductance.
     """
     if not np.isfinite(timeout) or timeout <= 0:
         raise ValueError('FastHenry timeout must be a positive finite number.')
@@ -183,11 +228,19 @@ def evaluate_final_electrical(cfg, path_N3, output_dir, tolerance=2e-5, timeout=
                 'Loop\nsolver.Quit\nSet solver = Nothing\n', encoding='utf-16')
             arguments = ['cscript.exe', '//Nologo', str(script)]
             flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-            result['com_timeout_cleanup'] = 'Client bounded; a hung external COM server may remain. No user processes are killed.'
+            result['com_timeout_cleanup'] = 'Owned server terminates when its job handle closes; existing user processes are not attached.'
         else:
             arguments, flags = [binary, str(input_file), '-S', token], 0
-        completed = subprocess.run(arguments, cwd=folder, capture_output=True, text=True,
-                                   timeout=timeout + 2, creationflags=flags)
+        if windows:
+            with _OwnedWindowsServer(actual_binary, timeout) as server_pid:
+                result['owned_server_pid'] = server_pid
+                _atomic_text(folder / 'result.json', json.dumps(
+                    {**result, 'status': 'running'}, indent=2, allow_nan=False) + '\n')
+                completed = subprocess.run(arguments, cwd=folder, capture_output=True, text=True,
+                                           timeout=timeout + 2, creationflags=flags)
+        else:
+            completed = subprocess.run(arguments, cwd=folder, capture_output=True, text=True,
+                                       timeout=timeout + 2, creationflags=flags)
         _atomic_text(folder / 'solver.log', completed.stdout + completed.stderr)
         if completed.returncode:
             raise RuntimeError(f'FastHenry launcher exit code: {completed.returncode}')

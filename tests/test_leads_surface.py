@@ -180,6 +180,19 @@ def test_impossible_bend_never_produces_a_candidate():
         plan(saddle_reference(), [1, 0, 0], 1, Options(min_bend_radius=1., candidates=1))
 
 
+def test_gz_default_sector_routes_the_saddle_without_relaxing_constraints():
+    reference = saddle_reference()
+    cfg = Config(gradient_axis='z')
+    with pytest.raises(GeometryRejected, match='No stations'):
+        plan(reference, [0, 1, 0], -1, Options())
+    result, leads, opened, report = plan(reference, cfg.lead_preset().sector_ref_dir, -1, Options())
+    assert result.is_watertight and report['retained_vertices_exact']
+    np.testing.assert_array_equal(result.vertices[:len(opened.vertices)], opened.vertices)
+    assert min(lead.min_radius for lead in leads) >= .006
+    assert all(lead.path[-1, 2] < -reference.shell_height/2 for lead in leads)
+    assert max(abs(volume) for volume in report['lead_coil_intersection_volumes_mm3']) <= 1e-6
+
+
 def test_extended_search_is_bounded_and_never_relaxes_geometric_limits(monkeypatch):
     import halbach_coils.coilgen.leads as adapter
 

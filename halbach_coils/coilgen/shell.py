@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import re
 import time
+from io import BytesIO
 from types import SimpleNamespace
 
 import numpy as np
@@ -51,6 +52,27 @@ def trimesh_from_manifold(manifold):
     verts = np.asarray(mesh.vert_properties, dtype=np.float64)[:, :3]
     faces = np.asarray(mesh.tri_verts, dtype=np.int64)
     return trimesh.Trimesh(vertices=verts, faces=faces, process=False)
+
+
+def export_validated_shell_stl(mesh, filename):
+    """Validate the actual float32 STL, removing collapsed/duplicate triangles.
+
+    Booleans can leave tiny edges that collapse at STL precision. Merging those
+    vertices must also remove the resulting zero-area triangles. Validate a
+    second reload before publishing, rather than reporting the in-memory mesh.
+    """
+    serialized = trimesh.load_mesh(BytesIO(mesh.export(file_type='stl')), file_type='stl')
+    serialized.update_faces(serialized.nondegenerate_faces() & serialized.unique_faces())
+    serialized.remove_unreferenced_vertices()
+    payload = serialized.export(file_type='stl')
+    final = trimesh.load_mesh(BytesIO(payload), file_type='stl')
+    if (not final.is_watertight or not final.is_winding_consistent
+            or not len(final.faces) or final.volume <= 0
+            or not np.all(final.nondegenerate_faces())):
+        raise RuntimeError('Shell STL failed validation after export; no result was published.')
+    with open(filename, 'xb') as stream:
+        stream.write(payload)
+    return final
 
 
 def expand_wire_mesh(wire_tm, expansion):
@@ -881,7 +903,7 @@ def run_shell(
         else:
             out_name = f"{shell_base}_g{layer}{label}.stl"
         out_path = unique_path(os.path.join(out_dir, out_name))
-        result_tm.export(out_path)
+        result_tm = export_validated_shell_stl(result_tm, out_path)
         out_paths.append(out_path)
 
         unit = 'mm' if export_mm else 'm'

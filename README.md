@@ -284,8 +284,10 @@ flat output directories. See [output and FastHenry verification](docs/SALIDAS_Y_
 Lead wires exit along the bore (by default toward `-Z`). Their angular station
 is configured per gradient axis. The planner preserves the original groove
 sections and requires a route that satisfies curvature and clearance checks.
-If no route is feasible it reports an error. A tested Gz case remains pending
-geometry review; see [the correction report](docs/CORRECCIONES_2026-10-14.md).
+If no route is feasible it reports an error. For the default B0=Y, Gz uses
+the terminal corridor near X. Both the formerly rejected Gz case and the GUI
+defaults were verified through the complete workflow; see
+[the Gz and cancellation report](docs/CIERRE_GZ_Y_CANCELACION.md).
 
 Reusing a wire requires its matching `*_design.json`, field data, and lead
 reference sidecars. The application checks the saved configuration and file
@@ -304,10 +306,12 @@ FastHenry2 is optional. The resolver checks, in order:
 After lead creation the application evaluates the final conductor. It records
 the analytical resistance separately from optional FastHenry R/L. If extraction
 is unavailable or fails, solver values remain empty with an explicit status.
-Windows FastHenry uses its registered COM server; its client has a timeout,
-but a hung external COM server may remain alive after cancellation. Real COM
-extraction was verified with the installed solver and the GUI defaults; see
-[the output and solver report](docs/SALIDAS_Y_FASTHENRY.md).
+Windows FastHenry runs in an owned hidden automation process, contained in a
+kill-on-close Windows job. Timeout, Stop, or worker termination closes that
+server even when COM is unresponsive. A pre-existing FastHenry instance is
+preserved and reported as unavailable for this run. Normal extraction, a
+deliberately frozen server, and cancellation were tested on the installed
+solver; see [the verification report](docs/CIERRE_GZ_Y_CANCELACION.md).
 
 ## pyCoilGen integration notes
 

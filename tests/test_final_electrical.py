@@ -125,6 +125,7 @@ def test_windows_script_quotes_input_with_spaces_and_is_bounded(monkeypatch, tmp
     binary = _fake_binary(monkeypatch, tmp_path, 'Windows')
     monkeypatch.setattr(electrical, 'registered_windows_server', lambda: str(binary))
     monkeypatch.setattr(electrical, '_windows_server_running', lambda _: False)
+    monkeypatch.setattr(electrical, '_OwnedWindowsServer', lambda *_: nullcontext(1234))
     captured = {}
 
     def run(arguments, **options):
@@ -140,8 +141,30 @@ def test_windows_script_quotes_input_with_spaces_and_is_bounded(monkeypatch, tmp
                                                   tmp_path / 'output with spaces', timeout=5)
     assert result['status'] == 'failed'
     assert captured['timeout'] == 7
-    assert 'COM server may remain' in result['com_timeout_cleanup']
+    assert 'Owned server terminates' in result['com_timeout_cleanup']
+    assert result['owned_server_pid'] == 1234
     assert 'timeout' in (Path(result['evidence_directory']) / 'solver.log').read_text()
+
+
+@pytest.mark.parametrize('startup_fails', (False, True))
+def test_owned_server_is_reaped_on_startup_failure_and_blocked_client(monkeypatch, startup_fails):
+    events = []
+    process = NS(pid=1234, poll=lambda: None,
+                 terminate=lambda: events.append('terminate owned PID'),
+                 wait=lambda **_kw: events.append('reap owned PID'))
+    monkeypatch.setattr(electrical.subprocess, 'Popen', lambda *a, **kw: process)
+    monkeypatch.setattr(electrical.subprocess, 'CREATE_NO_WINDOW', 0, raising=False)
+    monkeypatch.setattr(electrical, 'WindowsJob',
+                        lambda pid: NS(close=lambda: events.append(('kill contained PID', pid))))
+    def ready(*_args):
+        if startup_fails:
+            raise RuntimeError('Startup blocked')
+    monkeypatch.setattr(electrical, '_wait_for_input_idle', ready)
+    with pytest.raises(RuntimeError):
+        with electrical._OwnedWindowsServer('owned-server.exe', 5) as pid:
+            assert pid == 1234
+            raise RuntimeError('COM client blocked')
+    assert events == [('kill contained PID', 1234), 'terminate owned PID', 'reap owned PID']
 
 
 @pytest.mark.parametrize('quoted', (True, False))

@@ -1,8 +1,8 @@
 # Correcciones y validación — 14 de octubre de 2026
 
-Actualización posterior: la extracción COM real de FastHenry ya fue verificada.
-Véase [la organización de salidas y los resultados](SALIDAS_Y_FASTHENRY.md), que
-actualiza ese pendiente y documenta el ajuste de flechas al hacer zoom.
+Actualizaciones posteriores: [salidas y FastHenry](SALIDAS_Y_FASTHENRY.md) y
+[cierre de Gz y cancelación](CIERRE_GZ_Y_CANCELACION.md). Este último documenta
+la resolución de los dos pendientes técnicos y la aprobación de los parámetros.
 
 La carpeta de trabajo principal es `C:\Proyectos\GradientDesign`. La iteración
 anterior permanece en `C:\Proyectos\GradientDesign-Overengineered` y los respaldos
@@ -80,21 +80,19 @@ como tales. Los gráficos finales usan archivos separados con sufijo
   Las pruebas del cliente FastHenry usan un solver simulado, incluidos errores
   y timeout; no equivalen a una extracción COM real.
 
-## Pendientes acordados
+## Estado actualizado de los pendientes
 
-1. **Gz:** el caso probado no tiene una ruta aceptada por las restricciones de
-   curvatura y separación, incluso con la búsqueda ampliada de la versión
-   anterior. Se informa el rechazo y se conserva el diseño. Por indicación del
-   usuario, queda para revisar juntos geometría y configuración; no se relajan
-   las comprobaciones para forzar una salida.
-2. **FastHenry COM:** la instalación usa un servidor externo. El cliente tiene
-   timeout y el proceso de cálculo se cancela, pero un servidor COM bloqueado
-   podría seguir vivo. La extracción real y ese comportamiento requieren una
-   comprobación específica con el solver instalado.
+1. **Gz, resuelto:** la salida por X para B0=Y permite generar los leads del
+   caso guardado y de los valores iniciales de la interfaz, conservando las
+   restricciones. Ambos completaron campo, FastHenry y molde validado tras
+   volver a abrir el STL. Véase el reporte de cierre.
+2. **FastHenry COM, resuelto:** el servidor propio queda contenido en un trabajo
+   de Windows. Se verificaron operación normal, timeout y Detener con el servidor
+   deliberadamente congelado, además de preservar una instancia preexistente.
 3. **Diseño en lote Gx/Gy/Gz y encajes:** siguen reservados para la siguiente
    etapa, tras revisar los ejemplos de Fusion. La propuesta es fijar una
    referencia angular compartida y añadir encajes asimétricos en zonas libres
    de canales, comprobando interferencias entre las tres capas antes de exportar.
 
-El conjunto de parámetros avanzados puede revisarse después con el usuario,
-como estaba previsto.
+El usuario aprobó los parámetros avanzados tal como quedaron. Esa revisión se
+eliminó de los pendientes.

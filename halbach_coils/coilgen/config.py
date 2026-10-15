@@ -79,7 +79,8 @@ _LEAD_PRESETS = {
     ),
     'z': LeadAxisPreset(
         lead_direction=np.array([0.0, 0.0, -1.0]),
-        sector_ref_dir=np.array([0.0, 1.0, 0.0]),
+        # Gz saddles leave a clear terminal corridor at X for default B0=Y.
+        sector_ref_dir=np.array([1.0, 0.0, 0.0]),
         sector_angular_half=0.35,
         spread_signs=(1, -1),
     ),
